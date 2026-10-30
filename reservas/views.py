@@ -66,6 +66,11 @@ def mis_reservas(request):
 @require_POST
 def cancelar_reserva(request, pk):
     reserva = get_object_or_404(Reserva, pk=pk, usuario=request.user)
+    if not reserva.puede_cancelarse():
+        messages.error(
+            request, 'Solo se puede cancelar con 24 horas de anticipación.'
+        )
+        return redirect('mis_reservas')
     reserva.estado = Reserva.Estado.CANCELADA
     reserva.save()
     enviar_cancelacion(reserva)

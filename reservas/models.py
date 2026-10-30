@@ -4,6 +4,9 @@ from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 from django.db import models
 from django.db.models import Q
 
+from datetime import timedelta
+from django.utils import timezone
+
 
 class Recurso(models.Model):
     nombre = models.CharField(max_length=100)
@@ -42,6 +45,12 @@ class Reserva(models.Model):
                 condition=Q(estado='confirmada'),
             ),
         ]
+
+    def puede_cancelarse(self):
+        limite = timezone.now() + timedelta(
+            hours=settings.RESERVA_CANCELAR_ANTICIPACION_HORAS
+        )
+        return self.estado == self.Estado.CONFIRMADA and self.periodo.lower > limite
 
     def __str__(self):
         return f'{self.recurso} - {self.periodo.lower:%d/%m/%Y %H:%M}'

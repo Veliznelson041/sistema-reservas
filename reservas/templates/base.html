@@ -27,7 +27,7 @@
     {% endif %}
   </nav>
   <hr>
-  {% for m in messages %}<p class="ok">{{ m }}</p>{% endfor %}
+  {% for m in messages %}<p class="{% if m.tags == 'error' %}error{% else %}ok{% endif %}">{{ m }}</p>{% endfor %}
   {% block contenido %}{% endblock %}
 </body>
 </html>

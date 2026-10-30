@@ -86,3 +86,40 @@ class ReservaConcurrenciaTests(TransactionTestCase):
         self.assertEqual(resultados.count('ok'), 1)
         self.assertEqual(resultados.count('rechazada'), cantidad_hilos - 1)
         self.assertEqual(Reserva.objects.count(), 1)
+
+
+from .forms import ReservaForm
+
+
+class ReglasDeNegocioTests(TestCase):
+    def setUp(self):
+        self.cancha = Recurso.objects.create(nombre='Cancha 1')
+        manana = timezone.localtime() + timedelta(days=2)
+        self.inicio = manana.replace(hour=10, minute=0, second=0, microsecond=0)
+
+    def datos(self, horas):
+        fmt = '%Y-%m-%dT%H:%M'
+        return {
+            'recurso': self.cancha.pk,
+            'inicio': self.inicio.strftime(fmt),
+            'fin': (self.inicio + timedelta(hours=horas)).strftime(fmt),
+        }
+
+    def test_acepta_duracion_valida(self):
+        self.assertTrue(ReservaForm(self.datos(2)).is_valid())
+
+    def test_rechaza_duracion_excesiva(self):
+        self.assertFalse(ReservaForm(self.datos(5)).is_valid())
+
+    def test_no_se_cancela_con_menos_de_24_horas(self):
+        usuario = User.objects.create_user('ana', password='1234')
+        proxima = Reserva.objects.create(
+            usuario=usuario, recurso=self.cancha,
+            periodo=rango(timezone.now() + timedelta(hours=5)),
+        )
+        lejana = Reserva.objects.create(
+            usuario=usuario, recurso=self.cancha,
+            periodo=rango(timezone.now() + timedelta(days=3)),
+        )
+        self.assertFalse(proxima.puede_cancelarse())
+        self.assertTrue(lejana.puede_cancelarse())

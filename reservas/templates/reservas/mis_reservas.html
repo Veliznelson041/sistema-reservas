@@ -10,7 +10,7 @@
     <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
     <td>{{ r.get_estado_display }}</td>
     <td>
-      {% if r.estado == 'confirmada' %}
+        {% if r.puede_cancelarse %}
       <form method="post" action="{% url 'cancelar_reserva' r.pk %}">
         {% csrf_token %}<button>Cancelar</button>
       </form>
