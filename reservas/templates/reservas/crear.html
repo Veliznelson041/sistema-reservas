@@ -3,7 +3,7 @@
 <div class="page-head">
   <div>
     <h1>Nueva reserva</h1>
-    <p>Elegí el recurso y el horario que necesitás.</p>
+    <p>Elegí la cancha y el horario: el total se calcula al instante.</p>
   </div>
 </div>
 
@@ -21,18 +21,65 @@
       {% csrf_token %}
       {% if form.non_field_errors %}<div class="msg msg-error">{{ form.non_field_errors }}</div>{% endif %}
       {{ form.as_p }}
-      <button class="btn btn-block">Confirmar reserva</button>
+
+      <div id="resumen" class="price-box" hidden>
+        <div><span>Duración</span><strong id="res-horas"></strong></div>
+        <div><span>Precio por hora</span><strong id="res-precio"></strong></div>
+        <div class="total"><span>Total a pagar</span><strong id="res-total"></strong></div>
+      </div>
+
+      <button class="btn btn-block">Continuar al pago →</button>
     </form>
   </div>
 
   <aside class="card">
     <h3 style="margin-top:0">Antes de reservar</h3>
     <ul class="rules">
+      <li><span class="dot">💳</span><div><strong>Se confirma al pagar</strong><small>Tenés {{ minutos_pago }} minutos para pagar; el horario queda reservado para vos.</small></div></li>
       <li><span class="dot">⏱️</span><div><strong>Máximo {{ duracion_max }} horas</strong><small>Duración por reserva.</small></div></li>
       <li><span class="dot">🕗</span><div><strong>Desde las {{ apertura }}:00</strong><small>Y debe terminar el mismo día.</small></div></li>
-      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Pasado ese límite, la reserva queda firme.</small></div></li>
-      <li><span class="dot">✉️</span><div><strong>Confirmación por email</strong><small>Te llega apenas se confirma.</small></div></li>
+      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Con devolución del importe.</small></div></li>
     </ul>
   </aside>
 </div>
+
+{{ precios|json_script:"precios" }}
+<script>
+  const precios = JSON.parse(document.getElementById('precios').textContent);
+  const rec = document.getElementById('id_recurso');
+  const ini = document.getElementById('id_inicio');
+  const fin = document.getElementById('id_fin');
+  const caja = document.getElementById('resumen');
+  const moneda = new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS'});
+  const pad = n => String(n).padStart(2, '0');
+
+  function formato(d) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function actualizar() {
+    const precio = precios[rec.value];
+    const horas = (new Date(fin.value) - new Date(ini.value)) / 36e5;
+    if (precio === undefined || !ini.value || !fin.value || !(horas > 0)) {
+      caja.hidden = true;
+      return;
+    }
+    document.getElementById('res-horas').textContent =
+      horas.toLocaleString('es-AR', {maximumFractionDigits: 2}) + ' h';
+    document.getElementById('res-precio').textContent = moneda.format(precio);
+    document.getElementById('res-total').textContent = moneda.format(precio * horas);
+    caja.hidden = false;
+  }
+
+  // Al elegir el inicio, sugiere 1 hora de duración
+  ini.addEventListener('change', () => {
+    if (ini.value && !fin.value) {
+      const d = new Date(ini.value);
+      d.setHours(d.getHours() + 1);
+      fin.value = formato(d);
+    }
+  });
+  [rec, ini, fin].forEach(el => el.addEventListener('input', actualizar));
+  actualizar();
+</script>
 {% endblock %}

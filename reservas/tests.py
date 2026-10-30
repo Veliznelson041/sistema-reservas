@@ -123,3 +123,51 @@ class ReglasDeNegocioTests(TestCase):
         )
         self.assertFalse(proxima.puede_cancelarse())
         self.assertTrue(lejana.puede_cancelarse())
+
+
+from .models import Movimiento
+from .servicios import cancelar_con_devolucion, registrar_pago
+
+
+class PagoTests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user('ana', password='1234')
+        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.inicio = timezone.now() + timedelta(days=3)
+
+    def pendiente(self, vence_en=None):
+        return Reserva.objects.create(
+            usuario=self.usuario, recurso=self.cancha, periodo=rango(self.inicio),
+            monto=1000, estado='pendiente',
+            vence_en=vence_en or timezone.now() + timedelta(minutes=15),
+        )
+
+    def test_pago_confirma_y_registra_ingreso(self):
+        reserva = self.pendiente()
+        self.assertIsNotNone(registrar_pago(reserva, 'tarjeta'))
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.estado, 'confirmada')
+        self.assertEqual(Movimiento.objects.filter(tipo='ingreso').count(), 1)
+
+    def test_no_se_paga_una_reserva_vencida(self):
+        reserva = self.pendiente(vence_en=timezone.now() - timedelta(minutes=1))
+        self.assertIsNone(registrar_pago(reserva, 'tarjeta'))
+
+    def test_reserva_vencida_libera_el_horario(self):
+        self.pendiente(vence_en=timezone.now() - timedelta(minutes=1))
+        Reserva.objects.liberar_vencidas()
+        Reserva.objects.create(
+            usuario=self.usuario, recurso=self.cancha, periodo=rango(self.inicio)
+        )
+        self.assertEqual(Reserva.objects.filter(estado='confirmada').count(), 1)
+
+    def test_cancelar_reserva_pagada_genera_devolucion(self):
+        reserva = self.pendiente()
+        registrar_pago(reserva, 'tarjeta')
+        reserva.refresh_from_db()
+        self.assertEqual(cancelar_con_devolucion(reserva), 1000)
+        self.assertEqual(
+            Movimiento.objects.filter(tipo='gasto', categoria='devolucion').count(), 1
+        )
+
+

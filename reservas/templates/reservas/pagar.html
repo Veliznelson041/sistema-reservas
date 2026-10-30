@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block contenido %}
+<div class="page-head">
+  <div>
+    <h1>Finalizar pago</h1>
+    <p>Tu horario está reservado. Confirmalo antes de que se agote el tiempo.</p>
+  </div>
+  <div class="countdown">⏳ <span id="reloj">--:--</span></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="notice demo">
+      <span class="icon">🧪</span>
+      <div><strong>Modo demostración</strong>No se realiza ningún cobro real ni se piden datos de tarjeta.</div>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <label>Método de pago</label>
+      <div class="methods">
+        {% for valor, nombre in metodos %}
+        <label class="method">
+          <input type="radio" name="metodo" value="{{ valor }}" {% if forloop.first %}checked{% endif %}>
+          <span>{{ nombre }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-block">Pagar ${{ reserva.monto|floatformat:"2g" }}</button>
+    </form>
+  </div>
+
+  <aside class="card">
+    <h3 style="margin-top:0">Resumen</h3>
+    <div class="price-box" style="margin-top:0">
+      <div><span>Recurso</span><strong>{{ reserva.recurso }}</strong></div>
+      <div><span>Desde</span><strong>{{ reserva.periodo.lower|date:"d/m/Y H:i" }}</strong></div>
+      <div><span>Hasta</span><strong>{{ reserva.periodo.upper|date:"d/m/Y H:i" }}</strong></div>
+      <div class="total"><span>Total</span><strong>${{ reserva.monto|floatformat:"2g" }}</strong></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  let restante = {{ segundos }};
+  const reloj = document.getElementById('reloj');
+  function tick() {
+    if (restante <= 0) { window.location.reload(); return; }
+    const m = String(Math.floor(restante / 60)).padStart(2, '0');
+    const s = String(restante % 60).padStart(2, '0');
+    reloj.textContent = `${m}:${s}`;
+    restante--;
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+{% endblock %}
