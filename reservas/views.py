@@ -8,7 +8,8 @@ from django.views.decorators.http import require_POST
 from psycopg2.extras import DateTimeTZRange
 
 from .forms import ReservaForm
-from .models import Reserva
+from django.http import JsonResponse
+from .models import Recurso, Reserva
 
 
 def registro(request):
@@ -22,7 +23,13 @@ def registro(request):
 
 @login_required
 def crear_reserva(request):
-    form = ReservaForm(request.POST or None)
+    if request.method == 'POST':
+        form = ReservaForm(request.POST)
+    else:
+        form = ReservaForm(initial={
+            'inicio': request.GET.get('inicio'),
+            'recurso': request.GET.get('recurso') or None,
+        })
     if request.method == 'POST' and form.is_valid():
         datos = form.cleaned_data
         try:
@@ -58,3 +65,28 @@ def cancelar_reserva(request, pk):
     reserva.save()
     messages.info(request, 'Reserva cancelada.')
     return redirect('mis_reservas')
+
+
+@login_required
+def eventos_calendario(request):
+    reservas = Reserva.objects.filter(estado='confirmada').select_related('recurso')
+    recurso_id = request.GET.get('recurso')
+    if recurso_id:
+        reservas = reservas.filter(recurso_id=recurso_id)
+
+    eventos = [
+        {
+            'title': f'{r.recurso.nombre}' + (' (mía)' if r.usuario_id == request.user.id else ''),
+            'start': r.periodo.lower.isoformat(),
+            'end': r.periodo.upper.isoformat(),
+            'color': '#1b7f3b' if r.usuario_id == request.user.id else '#6c757d',
+        }
+        for r in reservas
+    ]
+    return JsonResponse(eventos, safe=False)
+
+
+@login_required
+def calendario(request):
+    recursos = Recurso.objects.filter(activo=True)
+    return render(request, 'reservas/calendario.html', {'recursos': recursos})

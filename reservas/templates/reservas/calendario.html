@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block contenido %}
+<h1>Calendario</h1>
+
+<label>Recurso:
+  <select id="filtro">
+    <option value="">Todos</option>
+    {% for r in recursos %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}
+  </select>
+</label>
+
+<div id="calendario" style="margin-top:1rem"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script>
+  const filtro = document.getElementById('filtro');
+  const calendario = new FullCalendar.Calendar(document.getElementById('calendario'), {
+    initialView: 'timeGridWeek',
+    locale: 'es',
+    timeZone: 'local',
+    firstDay: 1,
+    allDaySlot: false,
+    slotMinTime: '08:00:00',
+    slotMaxTime: '24:00:00',
+    nowIndicator: true,
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,timeGridWeek,timeGridDay'
+    },
+    events: (info, ok, fail) => {
+      const url = `{% url 'eventos_calendario' %}?recurso=${filtro.value}`;
+      fetch(url).then(r => r.json()).then(ok).catch(fail);
+    },
+    dateClick: (info) => {
+      const inicio = info.dateStr.slice(0, 16);
+      window.location = `{% url 'crear_reserva' %}?inicio=${inicio}&recurso=${filtro.value}`;
+    },
+  });
+  calendario.render();
+  filtro.addEventListener('change', () => calendario.refetchEvents());
+</script>
+{% endblock %}
