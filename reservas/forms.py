@@ -3,6 +3,9 @@ from django.utils import timezone
 
 from .models import Recurso
 
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth import get_user_model
+
 
 class ReservaForm(forms.Form):
     recurso = forms.ModelChoiceField(queryset=Recurso.objects.filter(activo=True))
@@ -24,3 +27,11 @@ class ReservaForm(forms.Form):
             if inicio < timezone.now():
                 raise forms.ValidationError('No se puede reservar en el pasado.')
         return datos
+
+
+class RegistroForm(UserCreationForm):
+    email = forms.EmailField(required=True)
+
+    class Meta(UserCreationForm.Meta):
+        model = get_user_model()
+        fields = ('username', 'email')

@@ -7,13 +7,15 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from psycopg2.extras import DateTimeTZRange
 
-from .forms import ReservaForm
+from .forms import ReservaForm, RegistroForm
 from django.http import JsonResponse
 from .models import Recurso, Reserva
 
+from .emails import enviar_cancelacion, enviar_confirmacion
+
 
 def registro(request):
-    form = UserCreationForm(request.POST or None)
+    form = RegistroForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         usuario = form.save()
         login(request, usuario)
@@ -30,11 +32,12 @@ def crear_reserva(request):
             'inicio': request.GET.get('inicio'),
             'recurso': request.GET.get('recurso') or None,
         })
+
     if request.method == 'POST' and form.is_valid():
         datos = form.cleaned_data
         try:
             with transaction.atomic():
-                Reserva.objects.create(
+                reserva = Reserva.objects.create(
                     usuario=request.user,
                     recurso=datos['recurso'],
                     periodo=DateTimeTZRange(datos['inicio'], datos['fin']),
@@ -42,8 +45,10 @@ def crear_reserva(request):
         except IntegrityError:
             form.add_error(None, 'Ese horario ya fue reservado. Elegí otro.')
         else:
+            enviar_confirmacion(reserva)
             messages.success(request, '¡Reserva confirmada!')
             return redirect('mis_reservas')
+
     return render(request, 'reservas/crear.html', {'form': form})
 
 
@@ -63,6 +68,7 @@ def cancelar_reserva(request, pk):
     reserva = get_object_or_404(Reserva, pk=pk, usuario=request.user)
     reserva.estado = Reserva.Estado.CANCELADA
     reserva.save()
+    enviar_cancelacion(reserva)
     messages.info(request, 'Reserva cancelada.')
     return redirect('mis_reservas')
 
