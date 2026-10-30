@@ -1,15 +1,27 @@
 {% extends 'base.html' %}
 {% block contenido %}
-<h1>Calendario</h1>
+<div class="page-head">
+  <div>
+    <h1>Calendario</h1>
+    <p>Hacé click en un horario libre para reservar.</p>
+  </div>
+  <a class="btn" href="{% url 'crear_reserva' %}">+ Nueva reserva</a>
+</div>
 
-<label>Recurso:
-  <select id="filtro">
-    <option value="">Todos</option>
-    {% for r in recursos %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}
-  </select>
-</label>
-
-<div id="calendario" style="margin-top:1rem"></div>
+<div class="card">
+  <div class="toolbar">
+    <label for="filtro" style="margin:0">Recurso</label>
+    <select id="filtro">
+      <option value="">Todos</option>
+      {% for r in recursos %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="legend">
+    <span><i style="background:#4f46e5"></i>Mis reservas</span>
+    <span><i style="background:#94a3b8"></i>Ocupado por otros</span>
+  </div>
+  <div id="calendario"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 <script>

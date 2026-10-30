@@ -13,6 +13,9 @@ from .models import Recurso, Reserva
 
 from .emails import enviar_cancelacion, enviar_confirmacion
 
+from django.conf import settings
+
+
 
 def registro(request):
     form = RegistroForm(request.POST or None)
@@ -49,7 +52,12 @@ def crear_reserva(request):
             messages.success(request, '¡Reserva confirmada!')
             return redirect('mis_reservas')
 
-    return render(request, 'reservas/crear.html', {'form': form})
+    return render(request, 'reservas/crear.html', {
+        'form': form,
+        'anticipacion': settings.RESERVA_CANCELAR_ANTICIPACION_HORAS,
+        'duracion_max': settings.RESERVA_DURACION_MAX_HORAS,
+        'apertura': settings.RESERVA_HORA_APERTURA,
+    })
 
 
 @login_required
@@ -90,8 +98,7 @@ def eventos_calendario(request):
             'title': f'{r.recurso.nombre}' + (' (mía)' if r.usuario_id == request.user.id else ''),
             'start': r.periodo.lower.isoformat(),
             'end': r.periodo.upper.isoformat(),
-            'color': '#1b7f3b' if r.usuario_id == request.user.id else '#6c757d',
-        }
+            'color': '#4f46e5' if r.usuario_id == request.user.id else '#94a3b8',        }
         for r in reservas
     ]
     return JsonResponse(eventos, safe=False)

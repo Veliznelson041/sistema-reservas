@@ -1,23 +1,48 @@
 {% extends 'base.html' %}
 {% block contenido %}
-<h1>Mis reservas</h1>
-<table>
-  <tr><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Estado</th><th></th></tr>
-  {% for r in reservas %}
-  <tr>
-    <td>{{ r.recurso }}</td>
-    <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
-    <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
-    <td>{{ r.get_estado_display }}</td>
-    <td>
-        {% if r.puede_cancelarse %}
-      <form method="post" action="{% url 'cancelar_reserva' r.pk %}">
-        {% csrf_token %}<button>Cancelar</button>
-      </form>
-      {% endif %}
-    </td>
-  </tr>
-  {% empty %}<tr><td colspan="5">Todavía no tenés reservas.</td></tr>
-  {% endfor %}
-</table>
+<div class="page-head">
+  <div>
+    <h1>Mis reservas</h1>
+    <p>Hola {{ user.username }}, acá está tu historial.</p>
+  </div>
+  <a class="btn" href="{% url 'crear_reserva' %}">+ Nueva reserva</a>
+</div>
+
+<div class="card">
+  {% if reservas %}
+  <div class="table-wrap">
+    <table>
+      <tr><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Estado</th><th></th></tr>
+      {% for r in reservas %}
+      <tr>
+        <td class="resource">{{ r.recurso }}</td>
+        <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
+        <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
+        <td>
+          <span class="badge {% if r.estado == 'confirmada' %}badge-ok{% else %}badge-off{% endif %}">
+            {{ r.get_estado_display }}
+          </span>
+        </td>
+        <td>
+          {% if r.puede_cancelarse %}
+            <form method="post" action="{% url 'cancelar_reserva' r.pk %}"
+                  onsubmit="return confirm('¿Cancelar esta reserva?')">
+              {% csrf_token %}<button class="btn btn-danger">Cancelar</button>
+            </form>
+          {% elif r.estado == 'confirmada' %}
+            <span class="locked">🔒 No cancelable (menos de 24 h)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <div class="big">🗓️</div>
+    <p>Todavía no tenés reservas.</p>
+    <a class="btn" href="{% url 'crear_reserva' %}">Hacer mi primera reserva</a>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}

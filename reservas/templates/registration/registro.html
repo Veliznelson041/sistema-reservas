@@ -1,5 +1,13 @@
 {% extends 'base.html' %}
 {% block contenido %}
-<h1>Crear cuenta</h1>
-<form method="post">{% csrf_token %}{{ form.as_p }}<button>Registrarme</button></form>
+<div class="auth card">
+  <h1>Crear cuenta</h1>
+  <p class="sub">Reservá en menos de un minuto</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn btn-block">Registrarme</button>
+  </form>
+  <p class="auth-alt">¿Ya tenés cuenta? <a href="{% url 'login' %}">Ingresá</a></p>
+</div>
 {% endblock %}

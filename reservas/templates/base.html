@@ -1,33 +1,37 @@
+{% load static %}
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Sistema de Reservas</title>
-  <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    nav a, nav button { margin-right: 1rem; }
-    .error { color: #b00020; }
-    .ok { color: #1b7f3b; }
-    table { width: 100%; border-collapse: collapse; }
-    td, th { padding: .5rem; border-bottom: 1px solid #ddd; text-align: left; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reservas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'reservas/style.css' %}">
 </head>
 <body>
-  <nav>
-    {% if user.is_authenticated %}
-      <a href="{% url 'mis_reservas' %}">Mis reservas</a>
-      <a href="{% url 'crear_reserva' %}">Reservar</a>
-      <a href="{% url 'calendario' %}">Calendario</a>
-      <form method="post" action="{% url 'logout' %}" style="display:inline">
-        {% csrf_token %}<button>Salir ({{ user.username }})</button>
-      </form>
-    {% else %}
-      <a href="{% url 'login' %}">Ingresar</a>
-      <a href="{% url 'registro' %}">Registrarse</a>
-    {% endif %}
-  </nav>
-  <hr>
-  {% for m in messages %}<p class="{% if m.tags == 'error' %}error{% else %}ok{% endif %}">{{ m }}</p>{% endfor %}
-  {% block contenido %}{% endblock %}
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="{% url 'mis_reservas' %}">📅 Turnos<span>Pro</span></a>
+      <nav class="nav-links">
+        {% if user.is_authenticated %}
+          <a href="{% url 'calendario' %}">Calendario</a>
+          <a href="{% url 'crear_reserva' %}">Reservar</a>
+          <a href="{% url 'mis_reservas' %}">Mis reservas</a>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}<button>Salir ({{ user.username }})</button>
+          </form>
+        {% else %}
+          <a href="{% url 'login' %}">Ingresar</a>
+          <a href="{% url 'registro' %}">Registrarse</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% for m in messages %}<div class="msg msg-{{ m.tags }}">{{ m }}</div>{% endfor %}
+    {% block contenido %}{% endblock %}
+  </main>
 </body>
 </html>

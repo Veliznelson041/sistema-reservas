@@ -1,10 +1,38 @@
 {% extends 'base.html' %}
 {% block contenido %}
-<h1>Nueva reserva</h1>
-<form method="post">
-  {% csrf_token %}
-  {% if form.non_field_errors %}<p class="error">{{ form.non_field_errors }}</p>{% endif %}
-  {{ form.as_p }}
-  <button>Reservar</button>
-</form>
+<div class="page-head">
+  <div>
+    <h1>Nueva reserva</h1>
+    <p>Elegí el recurso y el horario que necesitás.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="notice">
+      <span class="icon">⚠️</span>
+      <div>
+        <strong>Política de cancelación</strong>
+        No vas a poder cancelar esta reserva si faltan menos de {{ anticipacion }} horas para su inicio.
+      </div>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="msg msg-error">{{ form.non_field_errors }}</div>{% endif %}
+      {{ form.as_p }}
+      <button class="btn btn-block">Confirmar reserva</button>
+    </form>
+  </div>
+
+  <aside class="card">
+    <h3 style="margin-top:0">Antes de reservar</h3>
+    <ul class="rules">
+      <li><span class="dot">⏱️</span><div><strong>Máximo {{ duracion_max }} horas</strong><small>Duración por reserva.</small></div></li>
+      <li><span class="dot">🕗</span><div><strong>Desde las {{ apertura }}:00</strong><small>Y debe terminar el mismo día.</small></div></li>
+      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Pasado ese límite, la reserva queda firme.</small></div></li>
+      <li><span class="dot">✉️</span><div><strong>Confirmación por email</strong><small>Te llega apenas se confirma.</small></div></li>
+    </ul>
+  </aside>
+</div>
 {% endblock %}
