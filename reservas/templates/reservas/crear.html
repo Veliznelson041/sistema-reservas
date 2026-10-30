@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block contenido %}
+<h1>Nueva reserva</h1>
+<form method="post">
+  {% csrf_token %}
+  {% if form.non_field_errors %}<p class="error">{{ form.non_field_errors }}</p>{% endif %}
+  {{ form.as_p }}
+  <button>Reservar</button>
+</form>
+{% endblock %}

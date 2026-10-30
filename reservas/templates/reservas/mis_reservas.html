@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block contenido %}
+<h1>Mis reservas</h1>
+<table>
+  <tr><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Estado</th><th></th></tr>
+  {% for r in reservas %}
+  <tr>
+    <td>{{ r.recurso }}</td>
+    <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
+    <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
+    <td>{{ r.get_estado_display }}</td>
+    <td>
+      {% if r.estado == 'confirmada' %}
+      <form method="post" action="{% url 'cancelar_reserva' r.pk %}">
+        {% csrf_token %}<button>Cancelar</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% empty %}<tr><td colspan="5">Todavía no tenés reservas.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

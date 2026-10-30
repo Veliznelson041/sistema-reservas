@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Sistema de Reservas</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    nav a, nav button { margin-right: 1rem; }
+    .error { color: #b00020; }
+    .ok { color: #1b7f3b; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: .5rem; border-bottom: 1px solid #ddd; text-align: left; }
+  </style>
+</head>
+<body>
+  <nav>
+    {% if user.is_authenticated %}
+      <a href="{% url 'mis_reservas' %}">Mis reservas</a>
+      <a href="{% url 'crear_reserva' %}">Reservar</a>
+      <form method="post" action="{% url 'logout' %}" style="display:inline">
+        {% csrf_token %}<button>Salir ({{ user.username }})</button>
+      </form>
+    {% else %}
+      <a href="{% url 'login' %}">Ingresar</a>
+      <a href="{% url 'registro' %}">Registrarse</a>
+    {% endif %}
+  </nav>
+  <hr>
+  {% for m in messages %}<p class="ok">{{ m }}</p>{% endfor %}
+  {% block contenido %}{% endblock %}
+</body>
+</html>
