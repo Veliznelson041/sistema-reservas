@@ -1,0 +1,50 @@
+{% extends 'panel/base_panel.html' %}
+{% block panel %}
+<div class="page-head">
+  <div><h1>Reservas</h1><p>Todas las reservas del sistema.</p></div>
+  <a class="btn" href="{% url 'panel_mostrador' %}">+ Reserva en mostrador</a>
+</div>
+
+<div class="card">
+  <form method="get" class="filters">
+    <select name="estado">
+      <option value="">Todos los estados</option>
+      {% for valor, nombre in estados %}<option value="{{ valor }}" {% if f_estado == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+    </select>
+    <select name="recurso">
+      <option value="">Todos los recursos</option>
+      {% for r in recursos %}<option value="{{ r.id }}" {% if f_recurso == r.id|stringformat:"s" %}selected{% endif %}>{{ r.nombre }}</option>{% endfor %}
+    </select>
+    <input type="date" name="fecha" value="{{ f_fecha }}">
+    <button class="btn">Filtrar</button>
+    <a href="{% url 'panel_reservas' %}">Limpiar</a>
+  </form>
+
+  {% if reservas %}
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Cliente</th><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Monto</th><th>Estado</th><th></th></tr>
+    {% for r in reservas %}
+    <tr>
+      <td>{{ r.pk }}</td>
+      <td>{{ r.cliente }}{% if r.cliente_nombre %} <span class="badge badge-off">Mostrador</span>{% endif %}</td>
+      <td class="resource">{{ r.recurso }}</td>
+      <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
+      <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
+      <td>${{ r.monto|floatformat:"2g" }}</td>
+      <td><span class="badge {% if r.estado_clave == 'confirmada' %}badge-ok{% elif r.estado_clave == 'pendiente' %}badge-pend{% elif r.estado_clave == 'finalizada' %}badge-done{% else %}badge-off{% endif %}">{{ r.estado_texto }}</span></td>
+      <td>
+        {% if r.estado_clave == 'confirmada' or r.estado_clave == 'pendiente' %}
+        <form method="post" action="{% url 'panel_cancelar' r.pk %}"
+              onsubmit="return confirm('¿Cancelar la reserva #{{ r.pk }}? Si estaba pagada se registra la devolución.')">
+          {% csrf_token %}<button class="btn btn-danger">Cancelar</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}
+  <div class="empty"><div class="big">🔍</div><p>No hay reservas con esos filtros.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

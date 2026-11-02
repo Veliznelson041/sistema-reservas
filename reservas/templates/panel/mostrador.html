@@ -1,0 +1,15 @@
+{% extends 'panel/base_panel.html' %}
+{% block panel %}
+<div class="page-head">
+  <div><h1>Reserva en mostrador</h1><p>Para clientes que reservan y pagan en el local.</p></div>
+</div>
+
+<div class="card" style="max-width:560px">
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="msg msg-error">{{ form.non_field_errors }}</div>{% endif %}
+    {{ form.as_p }}
+    <button class="btn btn-block">Registrar reserva y cobro</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends 'panel/base_panel.html' %}
+{% block panel %}
+<div class="page-head">
+  <div><h1>Resumen</h1><p>Hoy es {{ hoy|date:"l j/m/Y" }}. Balance del mes en curso.</p></div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><span>Ingresos del mes</span><strong class="pos">${{ kpis.ingresos|floatformat:"2g" }}</strong></div>
+  <div class="kpi"><span>Gastos del mes</span><strong class="neg">${{ kpis.gastos|floatformat:"2g" }}</strong></div>
+  <div class="kpi"><span>Balance</span><strong class="{% if kpis.balance < 0 %}neg{% else %}pos{% endif %}">${{ kpis.balance|floatformat:"2g" }}</strong></div>
+  <div class="kpi"><span>Reservas hoy</span><strong>{{ reservas_hoy|length }}</strong></div>
+  <div class="kpi"><span>Pendientes de pago</span><strong>{{ pendientes }}</strong></div>
+</div>
+
+<div class="card" style="margin-bottom:1.25rem">
+  <h3 style="margin-top:0">Ingresos vs gastos (últimos 6 meses)</h3>
+  <div style="height:300px"><canvas id="chart"></canvas></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h3 style="margin-top:0">Reservas de hoy</h3>
+    {% if reservas_hoy %}
+    <div class="table-wrap"><table>
+      <tr><th>Horario</th><th>Recurso</th><th>Cliente</th></tr>
+      {% for r in reservas_hoy %}
+      <tr>
+        <td>{{ r.periodo.lower|time:"H:i" }} – {{ r.periodo.upper|time:"H:i" }}</td>
+        <td class="resource">{{ r.recurso }}</td>
+        <td>{{ r.cliente }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<div class="empty"><p>No hay reservas confirmadas para hoy.</p></div>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Ingresos por cancha (mes)</h3>
+    {% if por_cancha %}
+    <table>
+      {% for c in por_cancha %}
+      <tr><td class="resource">{{ c.nombre }}</td><td style="text-align:right">${{ c.total|floatformat:"2g" }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="empty"><p>Todavía no hay ingresos este mes.</p></div>{% endif %}
+  </div>
+</div>
+
+{{ grafico|json_script:"grafico" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js"></script>
+<script>
+  const g = JSON.parse(document.getElementById('grafico').textContent);
+  new Chart(document.getElementById('chart'), {
+    type: 'bar',
+    data: {
+      labels: g.etiquetas,
+      datasets: [
+        {label: 'Ingresos', data: g.ingresos, backgroundColor: '#4f46e5', borderRadius: 6},
+        {label: 'Gastos', data: g.gastos, backgroundColor: '#f87171', borderRadius: 6},
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {legend: {position: 'bottom'}},
+      scales: {y: {beginAtZero: true}},
+    },
+  });
+</script>
+{% endblock %}

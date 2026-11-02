@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import Recurso
+from .models import Movimiento, Pago, Recurso
 
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import get_user_model
@@ -11,6 +11,7 @@ from django.conf import settings
 
 
 class ReservaForm(forms.Form):
+    tolerancia_minutos = 0
     recurso = forms.ModelChoiceField(queryset=Recurso.objects.filter(activo=True))
     inicio = forms.DateTimeField(
         widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
@@ -29,7 +30,7 @@ class ReservaForm(forms.Form):
 
         if fin <= inicio:
             raise forms.ValidationError('El fin debe ser posterior al inicio.')
-        if inicio < timezone.now():
+        if inicio < timezone.now() - timedelta(minutes=self.tolerancia_minutos):
             raise forms.ValidationError('No se puede reservar en el pasado.')
 
         maxima = timedelta(hours=settings.RESERVA_DURACION_MAX_HORAS)
@@ -56,3 +57,40 @@ class RegistroForm(UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = get_user_model()
         fields = ('username', 'email')
+
+
+class MostradorForm(ReservaForm):
+    tolerancia_minutos = 60  # permite cargar a quien llegó recién al local
+    field_order = ['cliente', 'recurso', 'inicio', 'fin', 'metodo']
+
+    cliente = forms.CharField(max_length=100, label='Nombre del cliente')
+    metodo = forms.ChoiceField(
+        choices=Pago.Metodo.choices, initial=Pago.Metodo.EFECTIVO,
+        label='Método de pago',
+    )
+
+
+class MovimientoForm(forms.ModelForm):
+    class Meta:
+        model = Movimiento
+        fields = ['tipo', 'categoria', 'concepto', 'monto', 'fecha']
+        labels = {
+            'tipo': 'Tipo', 'categoria': 'Categoría',
+            'concepto': 'Concepto', 'monto': 'Monto ($)', 'fecha': 'Fecha',
+        }
+        widgets = {'fecha': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d')}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Reservas y devoluciones se registran solas
+        self.fields['categoria'].choices = [
+            c for c in Movimiento.Categoria.choices
+            if c[0] not in ('reserva', 'devolucion')
+        ]
+
+    def clean_monto(self):
+        monto = self.cleaned_data['monto']
+        if monto <= 0:
+            raise forms.ValidationError('El monto debe ser mayor a cero.')
+        return monto
+

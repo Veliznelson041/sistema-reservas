@@ -51,6 +51,7 @@ class Reserva(models.Model):
         max_length=20, choices=Estado.choices, default=Estado.CONFIRMADA
     )
     monto = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    cliente_nombre = models.CharField(max_length=100, blank=True)    
     vence_en = models.DateTimeField(null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
 
@@ -75,6 +76,25 @@ class Reserva(models.Model):
         )
         return self.estado == self.Estado.CONFIRMADA and self.periodo.lower > limite
 
+    @property
+    def finalizada(self):
+        return (
+            self.estado == self.Estado.CONFIRMADA
+            and self.periodo.upper <= timezone.now()
+        )
+
+    @property
+    def estado_clave(self):
+        return 'finalizada' if self.finalizada else self.estado
+
+    @property
+    def estado_texto(self):
+        return 'Finalizada' if self.finalizada else self.get_estado_display()
+
+    @property
+    def cliente(self):
+        return self.cliente_nombre or self.usuario.get_username()
+
     def __str__(self):
         return f'{self.recurso} - {self.periodo.lower:%d/%m/%Y %H:%M}'
 
@@ -82,8 +102,8 @@ class Reserva(models.Model):
 class Pago(models.Model):
     class Metodo(models.TextChoices):
         TARJETA = 'tarjeta', 'Tarjeta de crédito/débito'
-        TRANSFERENCIA = 'transferencia', 'Transferencia'
-        BILLETERA = 'billetera', 'Billetera virtual'
+        TRANSFERENCIA = 'transferencia', 'Transferencia bancaria'
+        EFECTIVO = 'efectivo', 'Efectivo (en el local)'
 
     class Estado(models.TextChoices):
         APROBADO = 'aprobado', 'Aprobado'

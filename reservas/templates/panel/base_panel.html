@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block contenido %}
+<nav class="subnav">
+  <a href="{% url 'panel' %}" class="{% if seccion == 'resumen' %}active{% endif %}">📊 Resumen</a>
+  <a href="{% url 'panel_reservas' %}" class="{% if seccion == 'reservas' %}active{% endif %}">🗓️ Reservas</a>
+  <a href="{% url 'panel_mostrador' %}" class="{% if seccion == 'mostrador' %}active{% endif %}">🏪 Reserva en mostrador</a>
+  <a href="{% url 'panel_finanzas' %}" class="{% if seccion == 'finanzas' %}active{% endif %}">💰 Finanzas</a>
+  <a href="{% url 'admin:index' %}">🛠️ Admin Django</a>
+</nav>
+{% block panel %}{% endblock %}
+{% endblock %}

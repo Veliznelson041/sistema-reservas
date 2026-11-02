@@ -171,3 +171,80 @@ class PagoTests(TestCase):
         )
 
 
+class PanelTests(TestCase):
+    def setUp(self):
+        self.cliente = User.objects.create_user('cli', password='1234')
+        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+
+    def test_anonimo_va_al_login(self):
+        self.assertEqual(self.client.get('/panel/').status_code, 302)
+
+    def test_cliente_no_entra_al_panel(self):
+        self.client.login(username='cli', password='1234')
+        self.assertEqual(self.client.get('/panel/').status_code, 403)
+
+    def test_admin_ve_todas_las_secciones(self):
+        self.client.login(username='adm', password='1234')
+        for url in ['/panel/', '/panel/reservas/', '/panel/mostrador/', '/panel/finanzas/']:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+
+    def test_mostrador_registra_reserva_y_cobro(self):
+        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.client.login(username='adm', password='1234')
+        inicio = (timezone.localtime() + timedelta(days=1)).replace(
+            hour=10, minute=0, second=0, microsecond=0
+        )
+        fmt = '%Y-%m-%dT%H:%M'
+        respuesta = self.client.post('/panel/mostrador/', {
+            'cliente': 'Juan Pérez', 'recurso': cancha.pk, 'metodo': 'efectivo',
+            'inicio': inicio.strftime(fmt),
+            'fin': (inicio + timedelta(hours=1)).strftime(fmt),
+        })
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(Movimiento.objects.filter(tipo='ingreso', monto=1000).count(), 1)
+        self.assertEqual(Reserva.objects.get().cliente, 'Juan Pérez')
+
+
+from .models import Pago
+
+
+class FinalizadasYPdfTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.pasada = Reserva.objects.create(
+            usuario=self.admin, recurso=self.cancha, monto=1000, estado='confirmada',
+            periodo=rango(timezone.now() - timedelta(days=2)),
+        )
+        Pago.objects.create(reserva=self.pasada, monto=1000, metodo='tarjeta')
+        self.futura = Reserva.objects.create(
+            usuario=self.admin, recurso=self.cancha, monto=1000, estado='confirmada',
+            periodo=rango(timezone.now() + timedelta(days=3)),
+        )
+        self.client.login(username='adm', password='1234')
+
+    def test_reserva_pasada_figura_como_finalizada(self):
+        self.assertTrue(self.pasada.finalizada)
+        self.assertEqual(self.pasada.estado_texto, 'Finalizada')
+        self.assertFalse(self.futura.finalizada)
+
+    def test_no_se_cancela_ni_devuelve_una_finalizada(self):
+        self.client.post(f'/panel/reservas/{self.pasada.pk}/cancelar/')
+        self.pasada.refresh_from_db()
+        self.assertEqual(self.pasada.estado, 'confirmada')
+        self.assertEqual(Movimiento.objects.filter(tipo='gasto').count(), 0)
+
+    def test_filtros_de_finalizada_y_confirmada(self):
+        r = self.client.get('/panel/reservas/?estado=finalizada')
+        self.assertEqual([x.pk for x in r.context['reservas']], [self.pasada.pk])
+        r = self.client.get('/panel/reservas/?estado=confirmada')
+        self.assertEqual([x.pk for x in r.context['reservas']], [self.futura.pk])
+
+    def test_pdf_de_finanzas(self):
+        r = self.client.get('/panel/finanzas/pdf/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r['Content-Type'], 'application/pdf')
+        self.assertTrue(r.content.startswith(b'%PDF'))
+
+
+

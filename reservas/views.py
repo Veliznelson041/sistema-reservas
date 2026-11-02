@@ -16,6 +16,11 @@ from .forms import RegistroForm, ReservaForm
 from .models import Pago, Recurso, Reserva
 from .servicios import cancelar_con_devolucion, registrar_pago
 
+METODOS_ONLINE = [
+    (valor, nombre) for valor, nombre in Pago.Metodo.choices
+    if valor != Pago.Metodo.EFECTIVO
+]
+
 
 def registro(request):
     form = RegistroForm(request.POST or None)
@@ -88,7 +93,7 @@ def pagar_reserva(request, pk):
 
     if request.method == 'POST':
         metodo = request.POST.get('metodo')
-        if metodo not in Pago.Metodo.values:
+        if metodo not in dict(METODOS_ONLINE):
             messages.error(request, 'Elegí un método de pago.')
         else:
             pago = registrar_pago(reserva, metodo)
@@ -102,7 +107,7 @@ def pagar_reserva(request, pk):
     segundos = int((reserva.vence_en - timezone.now()).total_seconds())
     return render(request, 'reservas/pagar.html', {
         'reserva': reserva,
-        'metodos': Pago.Metodo.choices,
+        'metodos': METODOS_ONLINE,
         'segundos': max(segundos, 0),
     })
 
@@ -126,7 +131,7 @@ def cancelar_reserva(request, pk):
 @login_required
 def mis_reservas(request):
     reservas = (
-        Reserva.objects.filter(usuario=request.user)
+        Reserva.objects.filter(usuario=request.user, cliente_nombre='')
         .select_related('recurso')
         .order_by('-creada_en')
     )

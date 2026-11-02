@@ -18,6 +18,7 @@
           <a href="{% url 'calendario' %}">Calendario</a>
           <a href="{% url 'crear_reserva' %}">Reservar</a>
           <a href="{% url 'mis_reservas' %}">Mis reservas</a>
+          {% if user.is_staff %}<a href="{% url 'panel' %}">⚙️ Panel</a>{% endif %}          
           <form method="post" action="{% url 'logout' %}">
             {% csrf_token %}<button>Salir ({{ user.username }})</button>
           </form>

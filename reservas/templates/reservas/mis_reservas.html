@@ -39,28 +39,23 @@
                     </span>
                 </td>
 
-                <td>
-                    {% if r.estado == 'pendiente' %}
-                        <a class="btn" href="{% url 'pagar_reserva' r.pk %}">
-                            Pagar ahora
-                        </a>
-
-                    {% elif r.puede_cancelarse %}
-                        <form method="post"
-                              action="{% url 'cancelar_reserva' r.pk %}"
-                              onsubmit="return confirm('¿Cancelar esta reserva?')">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-danger">
-                                Cancelar
-                            </button>
-                        </form>
-
-                    {% elif r.estado == 'confirmada' %}
-                        <span class="locked">
-                            🔒 No cancelable (menos de 24 h)
-                        </span>
-                    {% endif %}
-                </td>
+        <td>
+          <span class="badge {% if r.estado_clave == 'confirmada' %}badge-ok{% elif r.estado_clave == 'pendiente' %}badge-pend{% elif r.estado_clave == 'finalizada' %}badge-done{% else %}badge-off{% endif %}">
+            {{ r.estado_texto }}
+          </span>
+        </td>
+        <td>
+          {% if r.estado == 'pendiente' %}
+            <a class="btn" href="{% url 'pagar_reserva' r.pk %}">Pagar ahora</a>
+          {% elif r.puede_cancelarse %}
+            <form method="post" action="{% url 'cancelar_reserva' r.pk %}"
+                  onsubmit="return confirm('¿Cancelar esta reserva?')">
+              {% csrf_token %}<button class="btn btn-danger">Cancelar</button>
+            </form>
+          {% elif r.estado_clave == 'confirmada' %}
+            <span class="locked">🔒 No cancelable (menos de 24 h)</span>
+          {% endif %}
+        </td>
             </tr>
             {% endfor %}
         </table>

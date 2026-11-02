@@ -1,0 +1,73 @@
+{% extends 'panel/base_panel.html' %}
+{% block panel %}
+<div class="page-head">
+  <div><h1>Finanzas</h1><p>Ingresos, gastos y balance de {{ mes|date:"F Y" }}.</p></div>
+  <div class="month-nav">
+    <a class="btn btn-ghost" href="?mes={{ mes_anterior }}">←</a>
+    <form method="get"><input type="month" name="mes" value="{{ mes|date:'Y-m' }}" onchange="this.form.submit()"></form>
+    <a class="btn btn-ghost" href="?mes={{ mes_siguiente }}">→</a>
+    <a class="btn" href="{% url 'panel_exportar' %}?mes={{ mes|date:'Y-m' }}">⬇ PDF</a>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><span>Ingresos</span><strong class="pos">${{ kpis.ingresos|floatformat:"2g" }}</strong></div>
+  <div class="kpi"><span>Gastos</span><strong class="neg">${{ kpis.gastos|floatformat:"2g" }}</strong></div>
+  <div class="kpi"><span>Balance</span><strong class="{% if kpis.balance < 0 %}neg{% else %}pos{% endif %}">${{ kpis.balance|floatformat:"2g" }}</strong></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="tabs">
+      <a href="?mes={{ mes|date:'Y-m' }}" class="{% if not tipo %}active{% endif %}">Todos</a>
+      <a href="?mes={{ mes|date:'Y-m' }}&tipo=ingreso" class="{% if tipo == 'ingreso' %}active{% endif %}">Ingresos</a>
+      <a href="?mes={{ mes|date:'Y-m' }}&tipo=gasto" class="{% if tipo == 'gasto' %}active{% endif %}">Gastos</a>
+    </div>
+    {% if movimientos %}
+    <div class="table-wrap"><table>
+      <tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th style="text-align:right">Monto</th><th></th></tr>
+      {% for m in movimientos %}
+      <tr>
+        <td>{{ m.fecha|date:"d/m" }}</td>
+        <td>{{ m.concepto }}</td>
+        <td><span class="badge badge-off">{{ m.get_categoria_display }}</span></td>
+        <td style="text-align:right" class="{% if m.tipo == 'ingreso' %}pos{% else %}neg{% endif %}">
+          {% if m.tipo == 'ingreso' %}+{% else %}−{% endif %}${{ m.monto|floatformat:"2g" }}
+        </td>
+        <td>
+          {% if not m.reserva_id %}
+          <form method="post" action="{% url 'panel_eliminar_movimiento' m.pk %}" onsubmit="return confirm('¿Eliminar este movimiento?')">
+            {% csrf_token %}<input type="hidden" name="mes" value="{{ mes|date:'Y-m' }}">
+            <button class="btn btn-danger">✕</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% else %}
+    <div class="empty"><div class="big">💸</div><p>No hay movimientos en este período.</p></div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:1.25rem">
+      <h3 style="margin-top:0">Registrar movimiento</h3>
+      <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="btn btn-block">Guardar</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Desglose del mes</h3>
+      <table>
+        {% for c in ingresos_cat %}<tr><td>{{ c.nombre }}</td><td class="pos" style="text-align:right">+${{ c.total|floatformat:"2g" }}</td></tr>{% endfor %}
+        {% for c in gastos_cat %}<tr><td>{{ c.nombre }}</td><td class="neg" style="text-align:right">−${{ c.total|floatformat:"2g" }}</td></tr>{% endfor %}
+      </table>
+      {% if not ingresos_cat and not gastos_cat %}<p class="locked">Sin datos para este mes.</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
