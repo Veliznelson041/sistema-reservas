@@ -16,6 +16,15 @@ from .forms import RegistroForm, ReservaForm
 from .models import Pago, Recurso, Reserva
 from .servicios import cancelar_con_devolucion, registrar_pago
 
+COLORES_ADMIN = {
+    'finalizada': ('#dc2626', '#ffffff'),   # rojo
+    'confirmada': ('#16a34a', '#ffffff'),   # verde: confirmada y pagada
+    'pendiente': ('#facc15', '#713f12'),    # amarillo: sin pagar
+    'cancelada': ('#f97316', '#ffffff'),    # naranja
+}
+COLOR_PROPIA = '#4f46e5'    # violeta
+COLOR_AJENA = '#94a3b8'     # gris
+
 METODOS_ONLINE = [
     (valor, nombre) for valor, nombre in Pago.Metodo.choices
     if valor != Pago.Metodo.EFECTIVO
@@ -140,30 +149,36 @@ def mis_reservas(request):
 
 @login_required
 def eventos_calendario(request):
-    reservas = Reserva.objects.filter(
-        estado__in=['pendiente', 'confirmada']
-    ).select_related('recurso')
+    # Las pendientes vencidas se liberan: dejan de ocupar el horario
+    Reserva.objects.liberar_vencidas()
+    es_admin = request.user.is_staff
 
+    estados = ['pendiente', 'confirmada']
+    if es_admin:
+        estados.append('cancelada')   # solo el admin ve las canceladas
+
+    reservas = Reserva.objects.filter(estado__in=estados).select_related('recurso', 'usuario')
     recurso_id = request.GET.get('recurso')
-    if recurso_id:
-        reservas = reservas.filter(recurso_id=recurso_id)
+    if recurso_id and recurso_id.isdigit():
+        reservas = reservas.filter(recurso_id=int(recurso_id))
 
-    eventos = [
-        {
-            'title': f'{r.recurso.nombre}' + (
-                ' (mía)' if r.usuario_id == request.user.id else ''
-            ),
+    eventos = []
+    for r in reservas:
+        if es_admin:
+            color, texto = COLORES_ADMIN[r.estado_clave]
+            titulo = f'{r.recurso.nombre} · {r.cliente} ({r.estado_texto})'
+        else:
+            mia = r.usuario_id == request.user.id
+            color, texto = (COLOR_PROPIA if mia else COLOR_AJENA), '#ffffff'
+            titulo = f'{r.recurso.nombre} (mía)' if mia else f'{r.recurso.nombre} · ocupada'
+        eventos.append({
+            'id': r.pk,
+            'title': titulo,
             'start': r.periodo.lower.isoformat(),
             'end': r.periodo.upper.isoformat(),
-            'color': (
-                '#f59e0b' if r.estado == 'pendiente'
-                else '#4f46e5' if r.usuario_id == request.user.id
-                else '#94a3b8'
-            ),
-        }
-        for r in reservas
-    ]
-
+            'color': color,
+            'textColor': texto,
+        })
     return JsonResponse(eventos, safe=False)
 
 

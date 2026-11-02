@@ -17,8 +17,15 @@
     </select>
   </div>
   <div class="legend">
-    <span><i style="background:#4f46e5"></i>Mis reservas</span>
-    <span><i style="background:#94a3b8"></i>Ocupado por otros</span>
+    {% if user.is_staff %}
+      <span><i style="background:#16a34a"></i>Confirmada y pagada</span>
+      <span><i style="background:#facc15"></i>Sin pagar (15 min)</span>
+      <span><i style="background:#dc2626"></i>Finalizada</span>
+      <span><i style="background:#f97316"></i>Cancelada</span>
+    {% else %}
+      <span><i style="background:#4f46e5"></i>Mis reservas</span>
+      <span><i style="background:#94a3b8"></i>Ocupado por otros</span>
+    {% endif %}
   </div>
   <div id="calendario"></div>
 </div>

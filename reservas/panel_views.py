@@ -180,7 +180,7 @@ def cancelar(request, pk):
         messages.error(
             request, 'Esa reserva ya finalizó: no se puede cancelar ni devolver.'
         )
-    elif reserva.estado not in (Reserva.Estado.PENDIENTE, Reserva.Estado.CONFIRMADA):
+    elif not reserva.admin_puede_cancelar:
         messages.error(request, 'Esa reserva ya no se puede cancelar.')
     else:
         devuelto = cancelar_con_devolucion(reserva)

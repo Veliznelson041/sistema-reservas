@@ -92,6 +92,13 @@ class Reserva(models.Model):
         return 'Finalizada' if self.finalizada else self.get_estado_display()
 
     @property
+    def admin_puede_cancelar(self):
+        return (
+            self.estado in (self.Estado.PENDIENTE, self.Estado.CONFIRMADA)
+            and not self.finalizada
+        )
+
+    @property
     def cliente(self):
         return self.cliente_nombre or self.usuario.get_username()
 

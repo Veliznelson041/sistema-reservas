@@ -33,7 +33,7 @@
       <td>${{ r.monto|floatformat:"2g" }}</td>
       <td><span class="badge {% if r.estado_clave == 'confirmada' %}badge-ok{% elif r.estado_clave == 'pendiente' %}badge-pend{% elif r.estado_clave == 'finalizada' %}badge-done{% else %}badge-off{% endif %}">{{ r.estado_texto }}</span></td>
       <td>
-        {% if r.estado_clave == 'confirmada' or r.estado_clave == 'pendiente' %}
+        {% if r.admin_puede_cancelar %}
         <form method="post" action="{% url 'panel_cancelar' r.pk %}"
               onsubmit="return confirm('¿Cancelar la reserva #{{ r.pk }}? Si estaba pagada se registra la devolución.')">
           {% csrf_token %}<button class="btn btn-danger">Cancelar</button>

@@ -247,4 +247,59 @@ class FinalizadasYPdfTests(TestCase):
         self.assertTrue(r.content.startswith(b'%PDF'))
 
 
+class CalendarioColoresTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.ana = User.objects.create_user('ana', password='1234')
+        self.beto = User.objects.create_user('beto', password='1234')
+        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        ahora = timezone.now()
+
+        def crear(usuario, dias, estado, vence=None):
+            return Reserva.objects.create(
+                usuario=usuario, recurso=self.cancha, monto=1000, estado=estado,
+                vence_en=vence, periodo=rango(ahora + timedelta(days=dias)),
+            )
+
+        self.finalizada = crear(self.ana, -3, 'confirmada')
+        self.pagada = crear(self.ana, 2, 'confirmada')
+        self.pendiente = crear(self.beto, 4, 'pendiente', ahora + timedelta(minutes=10))
+        self.cancelada = crear(self.beto, 6, 'cancelada')
+        self.vencida = crear(self.beto, 8, 'pendiente', ahora - timedelta(minutes=1))
+
+    def colores(self, usuario):
+        self.client.login(username=usuario, password='1234')
+        datos = self.client.get('/calendario/eventos/').json()
+        return {e['id']: e['color'] for e in datos}
+
+    def test_admin_ve_cada_estado_con_su_color(self):
+        c = self.colores('adm')
+        self.assertEqual(c, {
+            self.finalizada.pk: '#dc2626',
+            self.pagada.pk: '#16a34a',
+            self.pendiente.pk: '#facc15',
+            self.cancelada.pk: '#f97316',
+        })  # la vencida no aparece: el horario quedó libre
+
+    def test_cliente_ve_las_suyas_en_violeta_y_las_ajenas_en_gris(self):
+        c = self.colores('ana')
+        self.assertEqual(c, {
+            self.finalizada.pk: '#4f46e5',
+            self.pagada.pk: '#4f46e5',
+            self.pendiente.pk: '#94a3b8',
+        })  # sin canceladas ni vencidas
+
+
+class CancelarFinalizadaTests(TestCase):
+    def test_el_servicio_rechaza_una_reserva_finalizada(self):
+        usuario = User.objects.create_user('ana', password='1234')
+        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        pasada = Reserva.objects.create(
+            usuario=usuario, recurso=cancha, monto=1000, estado='confirmada',
+            periodo=rango(timezone.now() - timedelta(days=2)),
+        )
+        Pago.objects.create(reserva=pasada, monto=1000, metodo='tarjeta')
+        with self.assertRaises(ValueError):
+            cancelar_con_devolucion(pasada)
+        self.assertEqual(Movimiento.objects.filter(tipo='gasto').count(), 0)
 

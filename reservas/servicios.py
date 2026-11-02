@@ -32,6 +32,8 @@ def registrar_pago(reserva, metodo):
 @transaction.atomic
 def cancelar_con_devolucion(reserva):
     """Cancela la reserva. Si estaba pagada, registra la devolución como gasto."""
+    if reserva.finalizada:
+        raise ValueError('La reserva ya finalizó: no se puede cancelar ni devolver.')
     reserva.estado = Reserva.Estado.CANCELADA
     reserva.save(update_fields=['estado'])
     pagada = reserva.pagos.filter(estado=Pago.Estado.APROBADO).exists()
