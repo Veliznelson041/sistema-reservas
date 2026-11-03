@@ -131,3 +131,14 @@ tr:last-child td { border-bottom: 0; }
 
 .badge-done { background: #e0e7ff; color: #3730a3; }
 
+
+.fc-event { cursor: pointer; }
+.modal { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: grid; place-items: center; padding: 1rem; z-index: 50; }
+.modal[hidden] { display: none; }
+.modal-box { position: relative; background: var(--card); border-radius: var(--radius); box-shadow: 0 20px 50px rgba(15, 23, 42, .3); padding: 1.6rem; width: 100%; max-width: 420px; }
+.modal-box h3 { margin: 0 2rem 1rem 0; font-size: 1.25rem; }
+.modal-close { position: absolute; top: .8rem; right: .8rem; background: #f1f5f9; border: 0; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; color: var(--muted); font-size: .95rem; }
+.modal-close:hover { background: var(--danger-soft); color: var(--danger); }
+.detail { display: grid; grid-template-columns: auto 1fr; gap: .55rem 1.1rem; margin: 0; }
+.detail dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.detail dd { margin: 0; font-weight: 600; text-align: right; }

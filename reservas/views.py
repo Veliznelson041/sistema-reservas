@@ -147,6 +147,17 @@ def mis_reservas(request):
     return render(request, 'reservas/mis_reservas.html', {'reservas': reservas})
 
 
+def _metodo_de_pago(reserva):
+    """Método del pago aprobado. Usa los pagos ya cargados con prefetch_related."""
+    pago = next(
+        (p for p in reserva.pagos.all() if p.estado == Pago.Estado.APROBADO), None
+    )
+    if pago is None:
+        return 'Sin pagar' if reserva.estado == 'pendiente' else 'Sin pago registrado'
+    texto = pago.get_metodo_display()
+    return f'{texto} (devuelto)' if reserva.estado == 'cancelada' else texto
+
+
 @login_required
 def eventos_calendario(request):
     # Las pendientes vencidas se liberan: dejan de ocupar el horario
@@ -157,20 +168,48 @@ def eventos_calendario(request):
     if es_admin:
         estados.append('cancelada')   # solo el admin ve las canceladas
 
-    reservas = Reserva.objects.filter(estado__in=estados).select_related('recurso', 'usuario')
+    reservas = (
+        Reserva.objects.filter(estado__in=estados)
+        .select_related('recurso', 'usuario')
+        .prefetch_related('pagos')
+    )
     recurso_id = request.GET.get('recurso')
     if recurso_id and recurso_id.isdigit():
         reservas = reservas.filter(recurso_id=int(recurso_id))
 
+    def fecha(dt):
+        return timezone.localtime(dt).strftime('%d/%m/%Y %H:%M')
+
     eventos = []
     for r in reservas:
+        mia = r.usuario_id == request.user.id and not r.cliente_nombre
+        detalle = [
+            ['Cancha', r.recurso.nombre],
+            ['Desde', fecha(r.periodo.lower)],
+            ['Hasta', fecha(r.periodo.upper)],
+        ]
         if es_admin:
             color, texto = COLORES_ADMIN[r.estado_clave]
             titulo = f'{r.recurso.nombre} · {r.cliente} ({r.estado_texto})'
+            cliente = r.cliente + (' (mostrador)' if r.cliente_nombre else '')
+            detalle = [['Cliente', cliente]] + detalle + [
+                ['Monto', f'${r.monto:,.2f}'],
+                ['Estado', r.estado_texto],
+                ['Método de pago', _metodo_de_pago(r)],
+            ]
+        elif mia:
+            color, texto = COLOR_PROPIA, '#ffffff'
+            titulo = f'{r.recurso.nombre} (mía)'
+            detalle += [
+                ['Monto', f'${r.monto:,.2f}'],
+                ['Estado', r.estado_texto],
+                ['Método de pago', _metodo_de_pago(r)],
+            ]
         else:
-            mia = r.usuario_id == request.user.id
-            color, texto = (COLOR_PROPIA if mia else COLOR_AJENA), '#ffffff'
-            titulo = f'{r.recurso.nombre} (mía)' if mia else f'{r.recurso.nombre} · ocupada'
+            color, texto = COLOR_AJENA, '#ffffff'
+            titulo = f'{r.recurso.nombre} · ocupada'
+            detalle += [['Estado', 'Ocupada']]
+
         eventos.append({
             'id': r.pk,
             'title': titulo,
@@ -178,6 +217,7 @@ def eventos_calendario(request):
             'end': r.periodo.upper.isoformat(),
             'color': color,
             'textColor': texto,
+            'extendedProps': {'detalle': detalle, 'titulo': r.recurso.nombre},
         })
     return JsonResponse(eventos, safe=False)
 

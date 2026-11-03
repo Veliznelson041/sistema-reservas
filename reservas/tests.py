@@ -303,3 +303,44 @@ class CancelarFinalizadaTests(TestCase):
             cancelar_con_devolucion(pasada)
         self.assertEqual(Movimiento.objects.filter(tipo='gasto').count(), 0)
 
+class DetalleCalendarioTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.ana = User.objects.create_user('ana', password='1234')
+        self.beto = User.objects.create_user('beto', password='1234')
+        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        ahora = timezone.now()
+        self.de_ana = Reserva.objects.create(
+            usuario=self.ana, recurso=cancha, monto=1000, estado='confirmada',
+            periodo=rango(ahora + timedelta(days=2)),
+        )
+        Pago.objects.create(reserva=self.de_ana, monto=1000, metodo='transferencia')
+        self.de_beto = Reserva.objects.create(
+            usuario=self.beto, recurso=cancha, monto=1000, estado='confirmada',
+            periodo=rango(ahora + timedelta(days=4)),
+        )
+        Pago.objects.create(reserva=self.de_beto, monto=1000, metodo='tarjeta')
+
+    def detalle(self, usuario, reserva):
+        self.client.login(username=usuario, password='1234')
+        eventos = self.client.get('/calendario/eventos/').json()
+        evento = next(e for e in eventos if e['id'] == reserva.pk)
+        return dict(evento['extendedProps']['detalle'])
+
+    def test_admin_ve_cliente_cancha_y_metodo(self):
+        d = self.detalle('adm', self.de_ana)
+        self.assertEqual(d['Cliente'], 'ana')
+        self.assertEqual(d['Cancha'], 'Cancha 1')
+        self.assertEqual(d['Método de pago'], 'Transferencia bancaria')
+
+    def test_cliente_ve_el_metodo_de_su_propia_reserva(self):
+        d = self.detalle('ana', self.de_ana)
+        self.assertEqual(d['Método de pago'], 'Transferencia bancaria')
+
+    def test_cliente_no_recibe_datos_de_otros(self):
+        d = self.detalle('ana', self.de_beto)
+        self.assertNotIn('Método de pago', d)
+        self.assertNotIn('Cliente', d)
+        respuesta = self.client.get('/calendario/eventos/').content.decode()
+        self.assertNotIn('beto', respuesta)
+        self.assertNotIn('Tarjeta', respuesta)

@@ -3,7 +3,7 @@
 <div class="page-head">
   <div>
     <h1>Calendario</h1>
-    <p>Hacé click en un horario libre para reservar.</p>
+    <p>Hacé click en un horario libre para reservar, o en una reserva para ver el detalle.</p>
   </div>
   <a class="btn" href="{% url 'crear_reserva' %}">+ Nueva reserva</a>
 </div>
@@ -30,9 +30,37 @@
   <div id="calendario"></div>
 </div>
 
+<div id="modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <button type="button" class="modal-close" id="modal-cerrar" aria-label="Cerrar">✕</button>
+    <h3 id="modal-titulo"></h3>
+    <dl id="modal-datos" class="detail"></dl>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 <script>
   const filtro = document.getElementById('filtro');
+  const modal = document.getElementById('modal');
+  const datos = document.getElementById('modal-datos');
+
+  function abrirDetalle(evento) {
+    document.getElementById('modal-titulo').textContent = evento.extendedProps.titulo;
+    datos.replaceChildren();
+    for (const [etiqueta, valor] of evento.extendedProps.detalle) {
+      const dt = document.createElement('dt');
+      const dd = document.createElement('dd');
+      dt.textContent = etiqueta;   // textContent: nunca interpreta HTML
+      dd.textContent = valor;
+      datos.append(dt, dd);
+    }
+    modal.hidden = false;
+  }
+  const cerrar = () => { modal.hidden = true; };
+  document.getElementById('modal-cerrar').addEventListener('click', cerrar);
+  modal.addEventListener('click', e => { if (e.target === modal) cerrar(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrar(); });
+
   const calendario = new FullCalendar.Calendar(document.getElementById('calendario'), {
     initialView: 'timeGridWeek',
     locale: 'es',
@@ -50,6 +78,10 @@
     events: (info, ok, fail) => {
       const url = `{% url 'eventos_calendario' %}?recurso=${filtro.value}`;
       fetch(url).then(r => r.json()).then(ok).catch(fail);
+    },
+    eventClick: (info) => {
+      info.jsEvent.preventDefault();
+      abrirDetalle(info.event);
     },
     dateClick: (info) => {
       const inicio = info.dateStr.slice(0, 16);
