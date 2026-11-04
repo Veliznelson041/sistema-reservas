@@ -37,7 +37,9 @@
         <td>
           {% if not m.reserva_id %}
           <form method="post" action="{% url 'panel_eliminar_movimiento' m.pk %}" onsubmit="return confirm('¿Eliminar este movimiento?')">
-            {% csrf_token %}<input type="hidden" name="mes" value="{{ mes|date:'Y-m' }}">
+            {% csrf_token %}
+            <input type="hidden" name="mes" value="{{ mes|date:'Y-m' }}">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
             <button class="btn btn-danger">✕</button>
           </form>
           {% endif %}
@@ -45,6 +47,7 @@
       </tr>
       {% endfor %}
     </table></div>
+    {% include 'panel/_paginacion.html' with pagina=movimientos query=qs_mov param='pagina' %}
     {% else %}
     <div class="empty"><div class="big">💸</div><p>No hay movimientos en este período.</p></div>
     {% endif %}
@@ -62,11 +65,21 @@
 
     <div class="card">
       <h3 style="margin-top:0">Desglose del mes</h3>
+      {% if desglose %}
       <table>
-        {% for c in ingresos_cat %}<tr><td>{{ c.nombre }}</td><td class="pos" style="text-align:right">+${{ c.total|floatformat:"2g" }}</td></tr>{% endfor %}
-        {% for c in gastos_cat %}<tr><td>{{ c.nombre }}</td><td class="neg" style="text-align:right">−${{ c.total|floatformat:"2g" }}</td></tr>{% endfor %}
+        {% for c in desglose %}
+        <tr>
+          <td>{{ c.nombre }}</td>
+          <td style="text-align:right" class="{% if c.tipo == 'ingreso' %}pos{% else %}neg{% endif %}">
+            {% if c.tipo == 'ingreso' %}+{% else %}−{% endif %}${{ c.total|floatformat:"2g" }}
+          </td>
+        </tr>
+        {% endfor %}
       </table>
-      {% if not ingresos_cat and not gastos_cat %}<p class="locked">Sin datos para este mes.</p>{% endif %}
+      {% include 'panel/_paginacion.html' with pagina=desglose query=qs_des param='pagina_desglose' %}
+      {% else %}
+      <p class="locked">Sin datos para este mes.</p>
+      {% endif %}
     </div>
   </div>
 </div>

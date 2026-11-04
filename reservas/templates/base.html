@@ -30,7 +30,7 @@
     </div>
   </header>
 
-  <main class="container">
+  <main class="container {% block ancho %}{% endblock %}">
     {% for m in messages %}<div class="msg msg-{{ m.tags }}">{{ m }}</div>{% endfor %}
     {% block contenido %}{% endblock %}
   </main>

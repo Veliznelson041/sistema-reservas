@@ -440,3 +440,68 @@ class CobroEnPanelTests(TestCase):
         self.assertEqual(Movimiento.objects.get(categoria='saldo').monto, Decimal('700.00'))
         r = self.client.get('/panel/reservas/?estado=saldo')
         self.assertEqual(len(r.context['reservas']), 0)
+
+
+class PaginacionTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        base = timezone.now() + timedelta(days=1)
+        for i in range(7):
+            Reserva.objects.create(
+                usuario=self.admin, recurso=cancha, monto=1000, estado='confirmada',
+                periodo=rango(base + timedelta(hours=2 * i)),
+            )
+        hoy = timezone.localdate()
+        for i in range(7):
+            Movimiento.objects.create(
+                tipo='gasto', categoria='otros', concepto=f'Gasto {i}',
+                monto=10, fecha=hoy,
+            )
+        self.client.login(username='adm', password='1234')
+
+    def test_reservas_de_a_cinco_por_pagina(self):
+        r = self.client.get('/panel/reservas/')
+        self.assertEqual(len(r.context['reservas']), 5)
+        r = self.client.get('/panel/reservas/?pagina=2')
+        self.assertEqual(len(r.context['reservas']), 2)
+
+    def test_pagina_invalida_no_rompe(self):
+        for p in ['0', '99', 'abc']:
+            self.assertEqual(self.client.get(f'/panel/reservas/?pagina={p}').status_code, 200)
+
+    def test_los_filtros_se_mantienen_al_cambiar_de_pagina(self):
+        r = self.client.get('/panel/reservas/?estado=confirmada')
+        self.assertContains(r, 'estado=confirmada&amp;pagina=2')
+
+    def test_movimientos_paginados(self):
+        r = self.client.get('/panel/finanzas/')
+        self.assertEqual(len(r.context['movimientos']), 5)
+        self.assertEqual(r.context['movimientos'].paginator.count, 7)
+        r = self.client.get('/panel/finanzas/?pagina=2')
+        self.assertEqual(len(r.context['movimientos']), 2)
+
+    def test_desglose_paginado(self):
+        hoy = timezone.localdate()
+        for cat in ['mantenimiento', 'servicios', 'sueldos', 'insumos', 'devolucion', 'reserva']:
+            Movimiento.objects.create(
+                tipo='gasto', categoria=cat, concepto='x', monto=5, fecha=hoy
+            )
+        r = self.client.get('/panel/finanzas/')
+        self.assertEqual(len(r.context['desglose']), 5)
+        self.assertEqual(r.context['desglose'].paginator.count, 7)
+        r = self.client.get('/panel/finanzas/?pagina_desglose=2')
+        self.assertEqual(len(r.context['desglose']), 2)
+
+    def test_cobrar_vuelve_a_la_pagina_de_origen(self):
+        r1, r2 = list(Reserva.objects.order_by('pk')[:2])
+        r = self.client.post(f'/panel/reservas/{r1.pk}/cobrar/', {
+            'metodo': 'efectivo', 'next': '/panel/reservas/?pagina=2',
+        })
+        self.assertRedirects(r, '/panel/reservas/?pagina=2')
+        # una URL de otro sitio se ignora
+        r = self.client.post(f'/panel/reservas/{r2.pk}/cobrar/', {
+            'metodo': 'efectivo', 'next': 'https://sitio-externo.com/',
+        })
+        self.assertEqual(r['Location'], '/panel/reservas/')
+

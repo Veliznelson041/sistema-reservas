@@ -36,6 +36,8 @@ from .models import Movimiento, Pago, Recurso, Reserva
 from .servicios import cancelar_con_devolucion, cobrar_saldo, registrar_pago
 from .utils import pesos
 
+from django.core.paginator import Paginator
+
 CERO = Decimal('0')
 MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -59,6 +61,25 @@ def staff_required(view):
             raise PermissionDenied
         return view(request, *args, **kwargs)
     return envoltura
+
+
+POR_PAGINA = 5
+
+
+def qs_sin(request, *claves):
+    """Parámetros de la URL actual sin las claves dadas (para armar links de paginación)."""
+    params = request.GET.copy()
+    for clave in claves:
+        params.pop(clave, None)
+    return params.urlencode()
+
+
+def volver_a(request, por_defecto):
+    """Redirige a la página de origen (filtros y página incluidos) si es una URL propia."""
+    siguiente = request.POST.get('next', '')
+    if url_has_allowed_host_and_scheme(siguiente, allowed_hosts={request.get_host()}):
+        return redirect(siguiente)
+    return redirect(por_defecto)
 
 
 # ---------- utilidades ----------
@@ -168,7 +189,7 @@ def reservas(request):
             Value(CERO),
             output_field=DecimalField(max_digits=10, decimal_places=2),
         ))
-        .order_by('-periodo')
+        .order_by('-periodo', '-id')
     )
 
     estado = request.GET.get('estado', '')
@@ -191,9 +212,12 @@ def reservas(request):
         except ValueError:
             pass
 
+    pagina = Paginator(qs, POR_PAGINA).get_page(request.GET.get('pagina'))
+
     return render(request, 'panel/reservas.html', {
         'seccion': 'reservas',
-        'reservas': qs[:200],
+        'reservas': pagina,
+        'query': qs_sin(request, 'pagina'),
         'recursos': Recurso.objects.all(),
         'estados': ESTADOS_FILTRO,
         'metodos': Pago.Metodo.choices,
@@ -216,9 +240,9 @@ def cancelar(request, pk):
         enviar_cancelacion(reserva)
         texto = f'Reserva #{reserva.pk} cancelada.'
         if devuelto:
-            texto += f' Se registró la devolución de ${devuelto}.'
+            texto += f' Se registró la devolución de {pesos(devuelto)}.'
         messages.info(request, texto)
-    return redirect('panel_reservas')
+    return volver_a(request, reverse('panel_reservas'))
 
 
 @staff_required
@@ -238,10 +262,7 @@ def cobrar(request, pk):
             )
         else:
             messages.error(request, 'Esa reserva no tiene saldo para cobrar.')
-    siguiente = request.POST.get('next', '')
-    if not url_has_allowed_host_and_scheme(siguiente, allowed_hosts={request.get_host()}):
-        siguiente = reverse('panel_reservas')
-    return redirect(siguiente)
+    return volver_a(request, reverse('panel_reservas'))
 
 
 @staff_required
@@ -307,13 +328,14 @@ def finanzas(request):
     movimientos = qs.filter(tipo=tipo) if tipo in ('ingreso', 'gasto') else qs
 
     nombres = dict(Movimiento.Categoria.choices)
-    desglose = (
-        qs.values('tipo', 'categoria').annotate(total=Sum('monto')).order_by('-total')
-    )
-    ingresos_cat = [{'nombre': nombres[f['categoria']], 'total': f['total']}
-                    for f in desglose if f['tipo'] == 'ingreso']
-    gastos_cat = [{'nombre': nombres[f['categoria']], 'total': f['total']}
-                  for f in desglose if f['tipo'] == 'gasto']
+    filas_desglose = [
+        {'tipo': f['tipo'], 'nombre': nombres[f['categoria']], 'total': f['total']}
+        for f in (
+            qs.values('tipo', 'categoria')
+            .annotate(total=Sum('monto'))
+            .order_by('-tipo', '-total')   # primero ingresos, después gastos
+        )
+    ]
 
     return render(request, 'panel/finanzas.html', {
         'seccion': 'finanzas',
@@ -321,11 +343,14 @@ def finanzas(request):
         'mes_anterior': (mes - timedelta(days=1)).replace(day=1).strftime('%Y-%m'),
         'mes_siguiente': siguiente_mes(mes).strftime('%Y-%m'),
         'kpis': totales(qs),
-        'movimientos': movimientos,
         'tipo': tipo,
         'form': form,
-        'ingresos_cat': ingresos_cat,
-        'gastos_cat': gastos_cat,
+        'movimientos': Paginator(movimientos, POR_PAGINA).get_page(request.GET.get('pagina')),
+        'desglose': Paginator(filas_desglose, POR_PAGINA).get_page(
+            request.GET.get('pagina_desglose')
+        ),
+        'qs_mov': qs_sin(request, 'pagina'),
+        'qs_des': qs_sin(request, 'pagina_desglose'),
     })
 
 
@@ -334,9 +359,9 @@ def finanzas(request):
 def eliminar_movimiento(request, pk):
     # Solo los movimientos cargados a mano; los de reservas son el registro contable
     get_object_or_404(Movimiento, pk=pk, reserva__isnull=True).delete()
-    mes = parsear_mes(request.POST.get('mes'))
     messages.info(request, 'Movimiento eliminado.')
-    return redirect(f"{reverse('panel_finanzas')}?mes={mes:%Y-%m}")
+    mes = parsear_mes(request.POST.get('mes'))
+    return volver_a(request, f"{reverse('panel_finanzas')}?mes={mes:%Y-%m}")
 
 
 

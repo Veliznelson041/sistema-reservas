@@ -147,3 +147,26 @@ a.kpi { color: inherit; display: block; transition: .15s; }
 a.kpi:hover { transform: translateY(-2px); border-color: var(--primary); }
 .inline-cobro { display: flex; gap: .4rem; margin-bottom: .4rem; align-items: center; }
 .inline-cobro select { width: auto; padding: .4rem .5rem; font-size: .85rem; }
+
+/* Paginación */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.pager-info { color: var(--muted); font-size: .85rem; text-align: center; }
+.pager-btn { padding: .4rem .9rem; border-radius: 999px; border: 1.5px solid var(--border); background: var(--card); font-weight: 600; font-size: .85rem; color: var(--primary); }
+a.pager-btn:hover { background: var(--primary-soft); border-color: var(--primary); }
+.pager-btn.disabled { color: #cbd5e1; background: #f8fafc; cursor: not-allowed; }
+
+/* Reservas del panel: más ancho y acciones apiladas, sin scroll horizontal */
+.container.wide { max-width: 1360px; }
+body:has(.container.wide) .topbar-inner { max-width: 1360px; }
+.tabla-reservas td { vertical-align: middle; }
+.tabla-reservas .num { text-align: right; white-space: nowrap; }
+.tabla-reservas th.num { text-align: right; }
+.tabla-reservas .horario { white-space: nowrap; }
+.tabla-reservas .horario strong { display: block; }
+.tabla-reservas .horario span { color: var(--muted); font-size: .85rem; }
+.acciones { min-width: 200px; }
+.acciones form { margin: 0 0 .5rem; }
+.acciones form:last-child { margin-bottom: 0; }
+.cobro { display: grid; gap: .4rem; }
+.cobro select { width: 100%; padding: .45rem .6rem; font-size: .85rem; }
+.cobro .btn, .acciones .btn-danger { width: 100%; text-align: center; }
