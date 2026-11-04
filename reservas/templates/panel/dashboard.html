@@ -10,6 +10,7 @@
   <div class="kpi"><span>Balance</span><strong class="{% if kpis.balance < 0 %}neg{% else %}pos{% endif %}">${{ kpis.balance|floatformat:"2g" }}</strong></div>
   <div class="kpi"><span>Reservas hoy</span><strong>{{ reservas_hoy|length }}</strong></div>
   <div class="kpi"><span>Pendientes de pago</span><strong>{{ pendientes }}</strong></div>
+  <a class="kpi" href="{% url 'panel_reservas' %}?estado=saldo"><span>Saldo por cobrar</span><strong>${{ saldo_por_cobrar|floatformat:"2g" }}</strong></a>
 </div>
 
 <div class="card" style="margin-bottom:1.25rem">

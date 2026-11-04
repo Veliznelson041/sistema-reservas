@@ -61,9 +61,17 @@ class RegistroForm(UserCreationForm):
 
 class MostradorForm(ReservaForm):
     tolerancia_minutos = 60  # permite cargar a quien llegó recién al local
-    field_order = ['cliente', 'recurso', 'inicio', 'fin', 'metodo']
+    field_order = ['cliente', 'recurso', 'inicio', 'fin', 'cobro', 'metodo']
 
     cliente = forms.CharField(max_length=100, label='Nombre del cliente')
+    cobro = forms.ChoiceField(
+        choices=[
+            ('sena', 'Cobrar la seña'),
+            ('total', 'Cobrar el total ahora'),
+            ('nada', 'No cobrar todavía (se cobra al finalizar)'),
+        ],
+        initial='sena', label='Cobro ahora',
+    )
     metodo = forms.ChoiceField(
         choices=Pago.Metodo.choices, initial=Pago.Metodo.EFECTIVO,
         label='Método de pago',
@@ -85,7 +93,7 @@ class MovimientoForm(forms.ModelForm):
         # Reservas y devoluciones se registran solas
         self.fields['categoria'].choices = [
             c for c in Movimiento.Categoria.choices
-            if c[0] not in ('reserva', 'devolucion')
+            if c[0] not in ('reserva', 'devolucion', 'sena', 'saldo')
         ]
 
     def clean_monto(self):

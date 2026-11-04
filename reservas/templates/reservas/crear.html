@@ -3,7 +3,7 @@
 <div class="page-head">
   <div>
     <h1>Nueva reserva</h1>
-    <p>Elegí la cancha y el horario: el total se calcula al instante.</p>
+    <p>Pagás una seña para confirmar y el resto al finalizar tu turno en el local.</p>
   </div>
 </div>
 
@@ -13,7 +13,7 @@
       <span class="icon">⚠️</span>
       <div>
         <strong>Política de cancelación</strong>
-        No vas a poder cancelar esta reserva si faltan menos de {{ anticipacion }} horas para su inicio.
+        No vas a poder cancelar esta reserva si faltan menos de {{ anticipacion }} horas para su inicio. Cancelando a tiempo se te devuelve la seña.
       </div>
     </div>
 
@@ -25,21 +25,23 @@
       <div id="resumen" class="price-box" hidden>
         <div><span>Duración</span><strong id="res-horas"></strong></div>
         <div><span>Precio por hora</span><strong id="res-precio"></strong></div>
-        <div class="total"><span>Total a pagar</span><strong id="res-total"></strong></div>
+        <div><span>Total del turno</span><strong id="res-total"></strong></div>
+        <div class="total"><span>Seña a pagar ahora (<span id="res-pct"></span>%)</span><strong id="res-sena"></strong></div>
+        <div><span>Saldo a abonar en el local</span><strong id="res-saldo"></strong></div>
       </div>
 
-      <button class="btn btn-block">Continuar al pago →</button>
+      <button class="btn btn-block">Continuar al pago de la seña →</button>
     </form>
   </div>
 
   <aside class="card">
     <h3 style="margin-top:0">Antes de reservar</h3>
     <ul class="rules">
-      <li><span class="dot">💳</span><div><strong>Se confirma al pagar</strong><small>Tenés {{ minutos_pago }} minutos para pagar; el horario queda reservado para vos.</small></div></li>
+      <li><span class="dot">💳</span><div><strong>Se confirma al pagar la seña</strong><small>Tenés {{ minutos_pago }} minutos para pagar; el horario queda reservado para vos.</small></div></li>
+      <li><span class="dot">🏪</span><div><strong>El resto, en el local</strong><small>Abonás el saldo al finalizar tu turno (efectivo, tarjeta o transferencia).</small></div></li>
       <li><span class="dot">⏱️</span><div><strong>Máximo {{ duracion_max }} horas</strong><small>Duración por reserva.</small></div></li>
       <li><span class="dot">🕗</span><div><strong>Desde las {{ apertura }}:00</strong><small>Y debe terminar el mismo día.</small></div></li>
-      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Con devolución del importe.</small></div></li>
-      <li><span class="dot">💵</span><div><strong>Efectivo solo en el local</strong><small>Online aceptamos tarjeta y transferencia.</small></div></li>
+      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Con devolución de la seña.</small></div></li>
     </ul>
   </aside>
 </div>
@@ -53,22 +55,27 @@
   const caja = document.getElementById('resumen');
   const moneda = new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS'});
   const pad = n => String(n).padStart(2, '0');
+  const poner = (id, texto) => { document.getElementById(id).textContent = texto; };
 
   function formato(d) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   function actualizar() {
-    const precio = precios[rec.value];
+    const r = precios[rec.value];
     const horas = (new Date(fin.value) - new Date(ini.value)) / 36e5;
-    if (precio === undefined || !ini.value || !fin.value || !(horas > 0)) {
+    if (r === undefined || !ini.value || !fin.value || !(horas > 0)) {
       caja.hidden = true;
       return;
     }
-    document.getElementById('res-horas').textContent =
-      horas.toLocaleString('es-AR', {maximumFractionDigits: 2}) + ' h';
-    document.getElementById('res-precio').textContent = moneda.format(precio);
-    document.getElementById('res-total').textContent = moneda.format(precio * horas);
+    const total = r.precio * horas;
+    const sena = Math.round(total * r.sena) / 100;
+    poner('res-horas', horas.toLocaleString('es-AR', {maximumFractionDigits: 2}) + ' h');
+    poner('res-precio', moneda.format(r.precio));
+    poner('res-total', moneda.format(total));
+    poner('res-pct', r.sena);
+    poner('res-sena', moneda.format(sena));
+    poner('res-saldo', moneda.format(total - sena));
     caja.hidden = false;
   }
 

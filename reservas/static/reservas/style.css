@@ -142,3 +142,8 @@ tr:last-child td { border-bottom: 0; }
 .detail { display: grid; grid-template-columns: auto 1fr; gap: .55rem 1.1rem; margin: 0; }
 .detail dt { color: var(--muted); font-size: .85rem; font-weight: 600; }
 .detail dd { margin: 0; font-weight: 600; text-align: right; }
+
+a.kpi { color: inherit; display: block; transition: .15s; }
+a.kpi:hover { transform: translateY(-2px); border-color: var(--primary); }
+.inline-cobro { display: flex; gap: .4rem; margin-bottom: .4rem; align-items: center; }
+.inline-cobro select { width: auto; padding: .4rem .5rem; font-size: .85rem; }

@@ -8,16 +8,28 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from django.core.validators import MaxValueValidator, MinValueValidator
+
 
 class Recurso(models.Model):
     nombre = models.CharField(max_length=100)
     descripcion = models.TextField(blank=True)
     precio_hora = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    sena_porcentaje = models.PositiveSmallIntegerField(
+        default=30,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        help_text='Porcentaje del total que se paga online como seña.',
+    )    
     activo = models.BooleanField(default=True)
 
     def calcular_monto(self, inicio, fin):
         horas = Decimal((fin - inicio).total_seconds()) / Decimal(3600)
         return (self.precio_hora * horas).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+    def calcular_sena(self, monto):
+        return (monto * self.sena_porcentaje / Decimal(100)).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
 
@@ -51,6 +63,7 @@ class Reserva(models.Model):
         max_length=20, choices=Estado.choices, default=Estado.CONFIRMADA
     )
     monto = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    sena = models.DecimalField(max_digits=10, decimal_places=2, default=0)    
     cliente_nombre = models.CharField(max_length=100, blank=True)    
     vence_en = models.DateTimeField(null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
@@ -102,6 +115,29 @@ class Reserva(models.Model):
     def cliente(self):
         return self.cliente_nombre or self.usuario.get_username()
 
+    @property
+    def total_pagado(self):
+        return sum(
+            (p.monto for p in self.pagos.all() if p.estado == 'aprobado'),
+            Decimal('0'),
+        )
+
+    @property
+    def saldo(self):
+        """Lo que falta cobrar de una reserva confirmada (se abona en el local)."""
+        if self.estado != self.Estado.CONFIRMADA:
+            return Decimal('0')
+        return max(self.monto - self.total_pagado, Decimal('0'))
+
+    @property
+    def a_pagar_online(self):
+        """Seña a pagar online. Las reservas anteriores a la seña pagaban el total."""
+        return self.sena if self.sena > 0 else self.monto
+
+    @property
+    def saldo_en_local(self):
+        return max(self.monto - self.a_pagar_online, Decimal('0'))
+
     def __str__(self):
         return f'{self.recurso} - {self.periodo.lower:%d/%m/%Y %H:%M}'
 
@@ -116,11 +152,18 @@ class Pago(models.Model):
         APROBADO = 'aprobado', 'Aprobado'
         RECHAZADO = 'rechazado', 'Rechazado'
 
+    class Concepto(models.TextChoices):
+        SENA = 'sena', 'Seña'
+        SALDO = 'saldo', 'Saldo'
+
     reserva = models.ForeignKey(Reserva, on_delete=models.CASCADE, related_name='pagos')
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     metodo = models.CharField(max_length=20, choices=Metodo.choices)
     estado = models.CharField(
         max_length=20, choices=Estado.choices, default=Estado.APROBADO
+    )
+    concepto = models.CharField(
+        max_length=10, choices=Concepto.choices, default=Concepto.SENA
     )
     referencia = models.CharField(max_length=64, blank=True)
     creado_en = models.DateTimeField(auto_now_add=True)
@@ -137,6 +180,8 @@ class Movimiento(models.Model):
     class Categoria(models.TextChoices):
         RESERVA = 'reserva', 'Reservas'
         DEVOLUCION = 'devolucion', 'Devoluciones'
+        SENA = 'sena', 'Señas'
+        SALDO = 'saldo', 'Saldos cobrados en el local'        
         MANTENIMIENTO = 'mantenimiento', 'Mantenimiento'
         SERVICIOS = 'servicios', 'Servicios (luz, agua, internet)'
         SUELDOS = 'sueldos', 'Sueldos'

@@ -2,7 +2,7 @@
 {% block contenido %}
 <div class="page-head">
   <div>
-    <h1>Finalizar pago</h1>
+    <h1>Pagá tu seña</h1>
     <p>Tu horario está reservado. Confirmalo antes de que se agote el tiempo.</p>
   </div>
   <div class="countdown">⏳ <span id="reloj">--:--</span></div>
@@ -26,13 +26,14 @@
         </label>
         {% endfor %}
       </div>
-
-       <div class="notice cash">
-        <span class="icon">💵</span>
-        <div><strong>¿Preferís pagar en efectivo?</strong>Las reservas en efectivo se hacen únicamente en el local.</div>
+      <div class="notice cash">
+        <span class="icon">🏪</span>
+        <div>
+          <strong>El resto lo abonás en el local</strong>
+          Al finalizar tu turno pagás el saldo de ${{ reserva.saldo_en_local|floatformat:"2g" }}. Si preferís pagar en efectivo, la reserva se hace únicamente en el local.
+        </div>
       </div>
-
-      <button class="btn btn-block">Pagar ${{ reserva.monto|floatformat:"2g" }}</button>
+      <button class="btn btn-block">Pagar seña ${{ reserva.a_pagar_online|floatformat:"2g" }}</button>
     </form>
   </div>
 
@@ -42,7 +43,9 @@
       <div><span>Recurso</span><strong>{{ reserva.recurso }}</strong></div>
       <div><span>Desde</span><strong>{{ reserva.periodo.lower|date:"d/m/Y H:i" }}</strong></div>
       <div><span>Hasta</span><strong>{{ reserva.periodo.upper|date:"d/m/Y H:i" }}</strong></div>
-      <div class="total"><span>Total</span><strong>${{ reserva.monto|floatformat:"2g" }}</strong></div>
+      <div><span>Total del turno</span><strong>${{ reserva.monto|floatformat:"2g" }}</strong></div>
+      <div class="total"><span>Seña a pagar ahora</span><strong>${{ reserva.a_pagar_online|floatformat:"2g" }}</strong></div>
+      <div><span>Saldo en el local</span><strong>${{ reserva.saldo_en_local|floatformat:"2g" }}</strong></div>
     </div>
   </aside>
 </div>

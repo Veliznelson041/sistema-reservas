@@ -16,5 +16,6 @@ urlpatterns = [
     path('panel/finanzas/', panel_views.finanzas, name='panel_finanzas'),
     path('panel/finanzas/pdf/', panel_views.exportar_pdf, name='panel_exportar'),
     path('panel/finanzas/<int:pk>/eliminar/', panel_views.eliminar_movimiento, name='panel_eliminar_movimiento'),
+    path('panel/reservas/<int:pk>/cobrar/', panel_views.cobrar, name='panel_cobrar'),
 
 ]

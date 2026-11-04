@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Q, Sum
+from django.db.models import DecimalField, F, Q, Sum, Value
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -29,6 +29,12 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from django.db.models.functions import Coalesce
+from django.utils.http import url_has_allowed_host_and_scheme
+
+from .models import Movimiento, Pago, Recurso, Reserva
+from .servicios import cancelar_con_devolucion, cobrar_saldo, registrar_pago
+from .utils import pesos
 
 CERO = Decimal('0')
 MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
@@ -42,6 +48,7 @@ ESTADOS_FILTRO = [
     ('finalizada', 'Finalizada'),
     ('cancelada', 'Cancelada'),
     ('expirada', 'Vencida'),
+    ('saldo', 'Con saldo por cobrar'),
 ]
 
 def staff_required(view):
@@ -127,6 +134,15 @@ def dashboard(request):
         )
     ]
 
+    confirmado = (
+        Reserva.objects.filter(estado='confirmada').aggregate(t=Sum('monto'))['t'] or CERO
+    )
+    cobrado = (
+        Pago.objects.filter(estado='aprobado', reserva__estado='confirmada')
+        .aggregate(t=Sum('monto'))['t'] or CERO
+    )
+    saldo_por_cobrar = max(confirmado - cobrado, CERO)
+
     return render(request, 'panel/dashboard.html', {
         'seccion': 'resumen',
         'hoy': hoy,
@@ -135,6 +151,7 @@ def dashboard(request):
         'pendientes': Reserva.objects.filter(estado='pendiente').count(),
         'grafico': grafico,
         'por_cancha': por_cancha,
+        'saldo_por_cobrar': saldo_por_cobrar,
     })
 
 
@@ -143,7 +160,16 @@ def dashboard(request):
 @staff_required
 def reservas(request):
     Reserva.objects.liberar_vencidas()
-    qs = Reserva.objects.select_related('recurso', 'usuario').order_by('-periodo')
+    qs = (
+        Reserva.objects.select_related('recurso', 'usuario')
+        .prefetch_related('pagos')
+        .annotate(cobrado=Coalesce(
+            Sum('pagos__monto', filter=Q(pagos__estado='aprobado')),
+            Value(CERO),
+            output_field=DecimalField(max_digits=10, decimal_places=2),
+        ))
+        .order_by('-periodo')
+    )
 
     estado = request.GET.get('estado', '')
     recurso = request.GET.get('recurso', '')
@@ -153,6 +179,8 @@ def reservas(request):
         qs = qs.filter(estado='confirmada', periodo__endswith__lte=ahora)
     elif estado == 'confirmada':
         qs = qs.filter(estado='confirmada', periodo__endswith__gt=ahora)
+    elif estado == 'saldo':
+        qs = qs.filter(estado='confirmada', monto__gt=F('cobrado'))
     elif estado:
         qs = qs.filter(estado=estado)
     if recurso.isdigit():
@@ -168,6 +196,7 @@ def reservas(request):
         'reservas': qs[:200],
         'recursos': Recurso.objects.all(),
         'estados': ESTADOS_FILTRO,
+        'metodos': Pago.Metodo.choices,
         'f_estado': estado, 'f_recurso': recurso, 'f_fecha': fecha,
     })
 
@@ -193,6 +222,29 @@ def cancelar(request, pk):
 
 
 @staff_required
+@require_POST
+def cobrar(request, pk):
+    reserva = get_object_or_404(Reserva, pk=pk)
+    metodo = request.POST.get('metodo')
+    if metodo not in Pago.Metodo.values:
+        messages.error(request, 'Elegí un método de pago.')
+    else:
+        pago = cobrar_saldo(reserva, metodo)
+        if pago:
+            messages.success(
+                request,
+                f'Cobrado {pesos(pago.monto)} de la reserva #{reserva.pk} '
+                f'({pago.get_metodo_display()}).',
+            )
+        else:
+            messages.error(request, 'Esa reserva no tiene saldo para cobrar.')
+    siguiente = request.POST.get('next', '')
+    if not url_has_allowed_host_and_scheme(siguiente, allowed_hosts={request.get_host()}):
+        siguiente = reverse('panel_reservas')
+    return redirect(siguiente)
+
+
+@staff_required
 def mostrador(request):
     form = MostradorForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -200,7 +252,7 @@ def mostrador(request):
         Reserva.objects.liberar_vencidas()
         recurso = datos['recurso']
         monto = recurso.calcular_monto(datos['inicio'], datos['fin'])
-        gratis = monto == 0
+        cobra_ahora = datos['cobro'] in ('sena', 'total') and monto > 0
         try:
             with transaction.atomic():
                 reserva = Reserva.objects.create(
@@ -209,17 +261,25 @@ def mostrador(request):
                     recurso=recurso,
                     periodo=DateTimeTZRange(datos['inicio'], datos['fin']),
                     monto=monto,
-                    estado=(Reserva.Estado.CONFIRMADA if gratis
-                            else Reserva.Estado.PENDIENTE),
-                    vence_en=None if gratis else timezone.now() + timedelta(minutes=5),
+                    sena=recurso.calcular_sena(monto),
+                    estado=(Reserva.Estado.PENDIENTE if cobra_ahora
+                            else Reserva.Estado.CONFIRMADA),
+                    vence_en=(timezone.now() + timedelta(minutes=5)
+                              if cobra_ahora else None),
                 )
         except IntegrityError:
             form.add_error(None, 'Ese horario ya está ocupado.')
         else:
-            if not gratis:
+            if cobra_ahora:
                 registrar_pago(reserva, datos['metodo'])
+                if datos['cobro'] == 'total':
+                    cobrar_saldo(reserva, datos['metodo'])
+            reserva = Reserva.objects.get(pk=reserva.pk)
             messages.success(
-                request, f'Reserva de {datos["cliente"]} registrada (${monto}).'
+                request,
+                f'Reserva de {datos["cliente"]} registrada. '
+                f'Cobrado: {pesos(reserva.total_pagado)}. '
+                f'Saldo por cobrar: {pesos(reserva.saldo)}.',
             )
             return redirect('panel_reservas')
 
@@ -278,10 +338,6 @@ def eliminar_movimiento(request, pk):
     messages.info(request, 'Movimiento eliminado.')
     return redirect(f"{reverse('panel_finanzas')}?mes={mes:%Y-%m}")
 
-
-def pesos(valor):
-    texto = f'{valor:,.2f}'
-    return '$' + texto.replace(',', '_').replace('.', ',').replace('_', '.')
 
 
 @staff_required

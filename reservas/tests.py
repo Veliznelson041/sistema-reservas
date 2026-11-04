@@ -196,13 +196,17 @@ class PanelTests(TestCase):
         )
         fmt = '%Y-%m-%dT%H:%M'
         respuesta = self.client.post('/panel/mostrador/', {
-            'cliente': 'Juan Pérez', 'recurso': cancha.pk, 'metodo': 'efectivo',
+            'cliente': 'Juan Pérez', 'recurso': cancha.pk,
+            'cobro': 'total', 'metodo': 'efectivo',
             'inicio': inicio.strftime(fmt),
             'fin': (inicio + timedelta(hours=1)).strftime(fmt),
         })
         self.assertEqual(respuesta.status_code, 302)
-        self.assertEqual(Movimiento.objects.filter(tipo='ingreso', monto=1000).count(), 1)
-        self.assertEqual(Reserva.objects.get().cliente, 'Juan Pérez')
+        ingresos = Movimiento.objects.filter(tipo='ingreso')
+        self.assertEqual(sum(m.monto for m in ingresos), 1000)
+        reserva = Reserva.objects.get()
+        self.assertEqual(reserva.cliente, 'Juan Pérez')
+        self.assertEqual(reserva.saldo, 0)
 
 
 from .models import Pago
@@ -331,11 +335,11 @@ class DetalleCalendarioTests(TestCase):
         d = self.detalle('adm', self.de_ana)
         self.assertEqual(d['Cliente'], 'ana')
         self.assertEqual(d['Cancha'], 'Cancha 1')
-        self.assertEqual(d['Método de pago'], 'Transferencia bancaria')
+        self.assertIn('Transferencia bancaria', d['Método de pago'])
 
     def test_cliente_ve_el_metodo_de_su_propia_reserva(self):
         d = self.detalle('ana', self.de_ana)
-        self.assertEqual(d['Método de pago'], 'Transferencia bancaria')
+        self.assertIn('Transferencia bancaria', d['Método de pago'])
 
     def test_cliente_no_recibe_datos_de_otros(self):
         d = self.detalle('ana', self.de_beto)
@@ -344,3 +348,95 @@ class DetalleCalendarioTests(TestCase):
         respuesta = self.client.get('/calendario/eventos/').content.decode()
         self.assertNotIn('beto', respuesta)
         self.assertNotIn('Tarjeta', respuesta)
+
+from decimal import Decimal
+
+from .servicios import cobrar_saldo
+
+
+class SenaTests(TestCase):
+    def setUp(self):
+        self.usuario = User.objects.create_user('ana', password='1234')
+        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)  # seña 30 %
+        self.inicio = timezone.now() + timedelta(days=3)
+
+    def crear(self, estado='pendiente', inicio=None):
+        inicio = inicio or self.inicio
+        monto = self.cancha.calcular_monto(inicio, inicio + timedelta(hours=1))
+        return Reserva.objects.create(
+            usuario=self.usuario, recurso=self.cancha, periodo=rango(inicio),
+            monto=monto, sena=self.cancha.calcular_sena(monto), estado=estado,
+            vence_en=(timezone.now() + timedelta(minutes=15)
+                      if estado == 'pendiente' else None),
+        )
+
+    def test_la_sena_es_el_porcentaje_del_total(self):
+        reserva = self.crear()
+        self.assertEqual(reserva.monto, Decimal('1000.00'))
+        self.assertEqual(reserva.sena, Decimal('300.00'))
+
+    def test_el_pago_online_cobra_solo_la_sena(self):
+        reserva = self.crear()
+        pago = registrar_pago(reserva, 'tarjeta')
+        reserva.refresh_from_db()
+        self.assertEqual(pago.monto, Decimal('300.00'))
+        self.assertEqual(reserva.estado, 'confirmada')
+        self.assertEqual(reserva.saldo, Decimal('700.00'))
+        ingreso = Movimiento.objects.get(tipo='ingreso')
+        self.assertEqual((ingreso.categoria, ingreso.monto), ('sena', Decimal('300.00')))
+
+    def test_cobrar_el_saldo_completa_el_pago_una_sola_vez(self):
+        reserva = self.crear()
+        registrar_pago(reserva, 'tarjeta')
+        pago = cobrar_saldo(reserva, 'efectivo')
+        self.assertEqual(pago.monto, Decimal('700.00'))
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.saldo, 0)
+        total = sum(m.monto for m in Movimiento.objects.filter(tipo='ingreso'))
+        self.assertEqual(total, Decimal('1000.00'))
+        self.assertIsNone(cobrar_saldo(reserva, 'efectivo'))  # no se cobra dos veces
+
+    def test_el_saldo_se_cobra_aunque_el_turno_ya_finalizo(self):
+        reserva = self.crear(
+            estado='confirmada', inicio=timezone.now() - timedelta(days=2)
+        )
+        Pago.objects.create(reserva=reserva, monto=300, metodo='tarjeta')
+        self.assertTrue(reserva.finalizada)
+        self.assertIsNotNone(cobrar_saldo(reserva, 'efectivo'))
+
+    def test_no_se_cobra_saldo_de_una_reserva_cancelada(self):
+        self.assertIsNone(cobrar_saldo(self.crear(estado='cancelada'), 'efectivo'))
+
+    def test_cancelar_a_tiempo_devuelve_solo_la_sena(self):
+        reserva = self.crear()
+        registrar_pago(reserva, 'tarjeta')
+        reserva.refresh_from_db()
+        self.assertEqual(cancelar_con_devolucion(reserva), Decimal('300.00'))
+        self.assertEqual(Movimiento.objects.get(tipo='gasto').monto, Decimal('300.00'))
+
+
+class CobroEnPanelTests(TestCase):
+    def test_admin_cobra_el_saldo_y_el_cliente_no_puede(self):
+        User.objects.create_user('adm', password='1234', is_staff=True)
+        cliente = User.objects.create_user('cli', password='1234')
+        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        reserva = Reserva.objects.create(
+            usuario=cliente, recurso=cancha, monto=1000, sena=300, estado='confirmada',
+            periodo=rango(timezone.now() - timedelta(hours=3)),
+        )
+        Pago.objects.create(reserva=reserva, monto=300, metodo='tarjeta')
+        url = f'/panel/reservas/{reserva.pk}/cobrar/'
+
+        self.client.login(username='cli', password='1234')
+        self.assertEqual(self.client.post(url, {'metodo': 'efectivo'}).status_code, 403)
+
+        self.client.login(username='adm', password='1234')
+        r = self.client.get('/panel/reservas/?estado=saldo')
+        self.assertEqual([x.pk for x in r.context['reservas']], [reserva.pk])
+
+        self.assertEqual(self.client.post(url, {'metodo': 'efectivo'}).status_code, 302)
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.saldo, 0)
+        self.assertEqual(Movimiento.objects.get(categoria='saldo').monto, Decimal('700.00'))
+        r = self.client.get('/panel/reservas/?estado=saldo')
+        self.assertEqual(len(r.context['reservas']), 0)

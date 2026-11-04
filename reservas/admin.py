@@ -7,6 +7,8 @@ from .models import Movimiento, Pago, Recurso, Reserva
 class RecursoAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'precio_hora', 'activo')
     list_editable = ('precio_hora', 'activo')
+    list_display = ('nombre', 'precio_hora', 'sena_porcentaje', 'activo')
+    list_editable = ('precio_hora', 'sena_porcentaje', 'activo')
 
 
 @admin.register(Reserva)
@@ -19,6 +21,8 @@ class ReservaAdmin(admin.ModelAdmin):
 class PagoAdmin(admin.ModelAdmin):
     list_display = ('id', 'reserva', 'monto', 'metodo', 'estado', 'creado_en')
     list_filter = ('metodo', 'estado')
+    list_display = ('id', 'reserva', 'monto', 'concepto', 'metodo', 'estado', 'creado_en')
+    list_filter = ('concepto', 'metodo', 'estado')
 
 
 @admin.register(Movimiento)

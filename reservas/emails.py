@@ -1,6 +1,9 @@
 import logging
+
 from django.core.mail import send_mail
 from django.utils import timezone
+
+from .utils import pesos
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +22,21 @@ def _enviar(asunto, mensaje, destinatario):
 def enviar_confirmacion(reserva):
     if not reserva.usuario.email:
         return
-    _enviar(
-        'Reserva confirmada',
-        f'Hola {reserva.usuario.username},\n\n'
-        f'Tu reserva de {reserva.recurso} quedó confirmada.\n'
-        f'Desde: {_fecha(reserva.periodo.lower)}\n'
-        f'Hasta: {_fecha(reserva.periodo.upper)}\n',
-        reserva.usuario.email,
-    )
+    lineas = [
+        f'Hola {reserva.usuario.username},',
+        '',
+        f'Tu reserva de {reserva.recurso} quedó confirmada.',
+        f'Desde: {_fecha(reserva.periodo.lower)}',
+        f'Hasta: {_fecha(reserva.periodo.upper)}',
+    ]
+    if reserva.monto > 0:
+        lineas += [
+            '',
+            f'Total del turno: {pesos(reserva.monto)}',
+            f'Seña abonada: {pesos(reserva.total_pagado)}',
+            f'Saldo a abonar en el local al finalizar tu turno: {pesos(reserva.saldo)}',
+        ]
+    _enviar('Reserva confirmada', '\n'.join(lineas) + '\n', reserva.usuario.email)
 
 
 def enviar_cancelacion(reserva):

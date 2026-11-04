@@ -1,7 +1,7 @@
 {% extends 'panel/base_panel.html' %}
 {% block panel %}
 <div class="page-head">
-  <div><h1>Reservas</h1><p>Todas las reservas del sistema.</p></div>
+  <div><h1>Reservas</h1><p>Todas las reservas del sistema. Cobrá el saldo desde acá cuando el cliente paga en el local.</p></div>
   <a class="btn" href="{% url 'panel_mostrador' %}">+ Reserva en mostrador</a>
 </div>
 
@@ -22,20 +22,32 @@
 
   {% if reservas %}
   <div class="table-wrap"><table>
-    <tr><th>#</th><th>Cliente</th><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Monto</th><th>Estado</th><th></th></tr>
+    <tr><th>#</th><th>Cliente</th><th>Recurso</th><th>Desde</th><th>Hasta</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado</th><th></th></tr>
     {% for r in reservas %}
     <tr>
       <td>{{ r.pk }}</td>
       <td>{{ r.cliente }}{% if r.cliente_nombre %} <span class="badge badge-off">Mostrador</span>{% endif %}</td>
       <td class="resource">{{ r.recurso }}</td>
-      <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
-      <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
+      <td>{{ r.periodo.lower|date:"d/m/y H:i" }}</td>
+      <td>{{ r.periodo.upper|date:"d/m/y H:i" }}</td>
       <td>${{ r.monto|floatformat:"2g" }}</td>
+      <td>${{ r.total_pagado|floatformat:"2g" }}</td>
+      <td>{% if r.saldo > 0 %}<strong class="neg">${{ r.saldo|floatformat:"2g" }}</strong>{% else %}—{% endif %}</td>
       <td><span class="badge {% if r.estado_clave == 'confirmada' %}badge-ok{% elif r.estado_clave == 'pendiente' %}badge-pend{% elif r.estado_clave == 'finalizada' %}badge-done{% else %}badge-off{% endif %}">{{ r.estado_texto }}</span></td>
       <td>
+        {% if r.estado == 'confirmada' and r.saldo > 0 %}
+        <form method="post" action="{% url 'panel_cobrar' r.pk %}" class="inline-cobro">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <select name="metodo">
+            {% for valor, nombre in metodos %}<option value="{{ valor }}" {% if valor == 'efectivo' %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+          </select>
+          <button class="btn">Cobrar ${{ r.saldo|floatformat:"2g" }}</button>
+        </form>
+        {% endif %}
         {% if r.admin_puede_cancelar %}
         <form method="post" action="{% url 'panel_cancelar' r.pk %}"
-              onsubmit="return confirm('¿Cancelar la reserva #{{ r.pk }}? Si estaba pagada se registra la devolución.')">
+              onsubmit="return confirm('¿Cancelar la reserva #{{ r.pk }}? Se devuelve lo que haya pagado el cliente.')">
           {% csrf_token %}<button class="btn btn-danger">Cancelar</button>
         </form>
         {% endif %}

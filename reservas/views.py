@@ -16,6 +16,8 @@ from .forms import RegistroForm, ReservaForm
 from .models import Pago, Recurso, Reserva
 from .servicios import cancelar_con_devolucion, registrar_pago
 
+from .utils import pesos
+
 COLORES_ADMIN = {
     'finalizada': ('#dc2626', '#ffffff'),   # rojo
     'confirmada': ('#16a34a', '#ffffff'),   # verde: confirmada y pagada
@@ -54,8 +56,9 @@ def crear_reserva(request):
         datos = form.cleaned_data
         recurso = datos['recurso']
         Reserva.objects.liberar_vencidas()
-        # El monto SIEMPRE se calcula en el servidor, nunca viene del navegador
+        # Monto y seña SIEMPRE se calculan en el servidor, nunca vienen del navegador
         monto = recurso.calcular_monto(datos['inicio'], datos['fin'])
+        sena = recurso.calcular_sena(monto)
         gratis = monto == 0
         try:
             with transaction.atomic():
@@ -64,6 +67,7 @@ def crear_reserva(request):
                     recurso=recurso,
                     periodo=DateTimeTZRange(datos['inicio'], datos['fin']),
                     monto=monto,
+                    sena=sena,
                     estado=(Reserva.Estado.CONFIRMADA if gratis
                             else Reserva.Estado.PENDIENTE),
                     vence_en=(None if gratis else timezone.now() + timedelta(
@@ -81,7 +85,10 @@ def crear_reserva(request):
     recursos = Recurso.objects.filter(activo=True)
     return render(request, 'reservas/crear.html', {
         'form': form,
-        'precios': {str(r.pk): float(r.precio_hora) for r in recursos},
+        'precios': {
+            str(r.pk): {'precio': float(r.precio_hora), 'sena': r.sena_porcentaje}
+            for r in recursos
+        },
         'anticipacion': settings.RESERVA_CANCELAR_ANTICIPACION_HORAS,
         'duracion_max': settings.RESERVA_DURACION_MAX_HORAS,
         'apertura': settings.RESERVA_HORA_APERTURA,
@@ -108,7 +115,7 @@ def pagar_reserva(request, pk):
             pago = registrar_pago(reserva, metodo)
             if pago:
                 enviar_confirmacion(pago.reserva)
-                messages.success(request, '¡Pago aprobado! Tu reserva está confirmada.')
+                messages.success(request, '¡Seña recibida! Tu reserva está confirmada.')
                 return redirect('mis_reservas')
             messages.error(request, 'No se pudo procesar el pago: la reserva venció.')
             return redirect('crear_reserva')
@@ -142,6 +149,7 @@ def mis_reservas(request):
     reservas = (
         Reserva.objects.filter(usuario=request.user, cliente_nombre='')
         .select_related('recurso')
+        .prefetch_related('pagos')
         .order_by('-creada_en')
     )
     return render(request, 'reservas/mis_reservas.html', {'reservas': reservas})
@@ -156,6 +164,27 @@ def _metodo_de_pago(reserva):
         return 'Sin pagar' if reserva.estado == 'pendiente' else 'Sin pago registrado'
     texto = pago.get_metodo_display()
     return f'{texto} (devuelto)' if reserva.estado == 'cancelada' else texto
+
+
+def _metodo_de_pago(reserva):
+    pagos = sorted(
+        (p for p in reserva.pagos.all() if p.estado == Pago.Estado.APROBADO),
+        key=lambda p: p.pk,
+    )
+    if not pagos:
+        return 'Sin pagar' if reserva.estado == 'pendiente' else 'Sin pago registrado'
+    texto = ' + '.join(
+        f'{p.get_metodo_display()} ({p.get_concepto_display().lower()})' for p in pagos
+    )
+    return f'{texto} · devuelto' if reserva.estado == 'cancelada' else texto
+
+
+def _filas_de_pago(r):
+    filas = [['Total', pesos(r.monto)], ['Pagado', pesos(r.total_pagado)]]
+    if r.estado == 'confirmada':
+        filas.append(['Saldo a cobrar en el local', pesos(r.saldo)])
+    filas.append(['Método de pago', _metodo_de_pago(r)])
+    return filas
 
 
 @login_required
@@ -193,18 +222,12 @@ def eventos_calendario(request):
             titulo = f'{r.recurso.nombre} · {r.cliente} ({r.estado_texto})'
             cliente = r.cliente + (' (mostrador)' if r.cliente_nombre else '')
             detalle = [['Cliente', cliente]] + detalle + [
-                ['Monto', f'${r.monto:,.2f}'],
-                ['Estado', r.estado_texto],
-                ['Método de pago', _metodo_de_pago(r)],
-            ]
+                ['Estado', r.estado_texto]
+            ] + _filas_de_pago(r)
         elif mia:
             color, texto = COLOR_PROPIA, '#ffffff'
             titulo = f'{r.recurso.nombre} (mía)'
-            detalle += [
-                ['Monto', f'${r.monto:,.2f}'],
-                ['Estado', r.estado_texto],
-                ['Método de pago', _metodo_de_pago(r)],
-            ]
+            detalle += [['Estado', r.estado_texto]] + _filas_de_pago(r)
         else:
             color, texto = COLOR_AJENA, '#ffffff'
             titulo = f'{r.recurso.nombre} · ocupada'
