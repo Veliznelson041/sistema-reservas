@@ -1,73 +1,85 @@
-
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from functools import wraps
+from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import DecimalField, F, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from psycopg2.extras import DateTimeTZRange
-
-from .emails import enviar_cancelacion
-from .forms import MostradorForm, MovimientoForm
-from .models import Movimiento, Recurso, Reserva
-from .servicios import cancelar_con_devolucion, registrar_pago
-
-from io import BytesIO
-from xml.sax.saxutils import escape
-
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
 
-from django.db.models.functions import Coalesce
-from django.utils.http import url_has_allowed_host_and_scheme
-
+from .emails import enviar_cancelacion
+from .forms import MostradorForm, MovimientoForm
 from .models import Movimiento, Pago, Recurso, Reserva
+from .permisos import complejos_del_usuario
 from .servicios import cancelar_con_devolucion, cobrar_saldo, registrar_pago
 from .utils import pesos
 
-from django.core.paginator import Paginator
-
 CERO = Decimal('0')
+POR_PAGINA = 5
 MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-
 MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
                 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 ESTADOS_FILTRO = [
     ('pendiente', 'Pendiente de pago'),
     ('confirmada', 'Confirmada'),
     ('finalizada', 'Finalizada'),
+    ('saldo', 'Con saldo por cobrar'),
     ('cancelada', 'Cancelada'),
     ('expirada', 'Vencida'),
-    ('saldo', 'Con saldo por cobrar'),
 ]
 
+
 def staff_required(view):
+    """Solo staff asignado a algún complejo (o superusuario).
+
+    Deja en el request:
+      request.complejos        -> complejos que el usuario puede gestionar (permisos)
+      request.complejo_activo  -> el elegido en el selector (o el único que tiene)
+      request.alcance          -> complejos que se muestran en pantalla
+    """
     @login_required
     @wraps(view)
     def envoltura(request, *args, **kwargs):
-        if not request.user.is_staff:
+        complejos = complejos_del_usuario(request.user)
+        if not request.user.is_staff or not (
+            request.user.is_superuser or complejos.exists()
+        ):
             raise PermissionDenied
+        activo = None
+        activo_id = request.session.get('complejo_activo')
+        if activo_id:
+            activo = complejos.filter(pk=activo_id).first()
+        if activo is None and complejos.count() == 1:
+            activo = complejos.first()
+        request.complejos = complejos
+        request.complejo_activo = activo
+        request.alcance = complejos.filter(pk=activo.pk) if activo else complejos
         return view(request, *args, **kwargs)
     return envoltura
 
 
-POR_PAGINA = 5
-
+# ---------- utilidades ----------
 
 def qs_sin(request, *claves):
-    """Parámetros de la URL actual sin las claves dadas (para armar links de paginación)."""
+    """Parámetros de la URL actual sin las claves dadas (para los links de paginación)."""
     params = request.GET.copy()
     for clave in claves:
         params.pop(clave, None)
@@ -82,8 +94,6 @@ def volver_a(request, por_defecto):
     return redirect(por_defecto)
 
 
-# ---------- utilidades ----------
-
 def parsear_mes(texto):
     """Convierte 'AAAA-MM' en el primer día de ese mes (por defecto, el actual)."""
     try:
@@ -97,8 +107,10 @@ def siguiente_mes(d):
     return date(d.year + (d.month == 12), d.month % 12 + 1, 1)
 
 
-def movimientos_del_mes(mes):
-    return Movimiento.objects.filter(fecha__gte=mes, fecha__lt=siguiente_mes(mes))
+def movimientos_del_mes(mes, alcance):
+    return Movimiento.objects.filter(
+        complejo__in=alcance, fecha__gte=mes, fecha__lt=siguiente_mes(mes)
+    )
 
 
 def totales(qs):
@@ -116,17 +128,32 @@ def rango_del_dia(dia):
     return DateTimeTZRange(inicio, inicio + timedelta(days=1))
 
 
+# ---------- selector de complejo ----------
+
+@staff_required
+@require_POST
+def elegir_complejo(request):
+    elegido = request.POST.get('complejo', '')
+    if elegido.isdigit() and request.complejos.filter(pk=int(elegido)).exists():
+        request.session['complejo_activo'] = int(elegido)
+    else:
+        request.session.pop('complejo_activo', None)   # "Todos"
+    return volver_a(request, reverse('panel'))
+
+
 # ---------- resumen ----------
 
 @staff_required
 def dashboard(request):
     Reserva.objects.liberar_vencidas()
+    alcance = request.alcance
     hoy = timezone.localdate()
     mes = hoy.replace(day=1)
+    reservas_base = Reserva.objects.filter(recurso__complejo__in=alcance)
 
     reservas_hoy = (
-        Reserva.objects.filter(estado='confirmada', periodo__overlap=rango_del_dia(hoy))
-        .select_related('recurso', 'usuario')
+        reservas_base.filter(estado='confirmada', periodo__overlap=rango_del_dia(hoy))
+        .select_related('recurso__complejo', 'usuario')
         .order_by('periodo')
     )
 
@@ -139,40 +166,47 @@ def dashboard(request):
             anio, nro = anio - 1, 12
     grafico = {'etiquetas': [], 'ingresos': [], 'gastos': []}
     for d in reversed(meses):
-        t = totales(movimientos_del_mes(d))
+        t = totales(movimientos_del_mes(d, alcance))
         grafico['etiquetas'].append(f'{MESES_CORTOS[d.month - 1]} {d.year}')
         grafico['ingresos'].append(float(t['ingresos']))
         grafico['gastos'].append(float(t['gastos']))
 
+    varios = alcance.count() > 1
     por_cancha = [
-        {'nombre': f['reserva__recurso__nombre'], 'total': f['total']}
+        {
+            'nombre': (f"{f['reserva__recurso__complejo__nombre']} · " if varios else '')
+                      + f['reserva__recurso__nombre'],
+            'total': f['total'],
+        }
         for f in (
-            movimientos_del_mes(mes)
+            movimientos_del_mes(mes, alcance)
             .filter(tipo='ingreso', reserva__isnull=False)
-            .values('reserva__recurso__nombre')
+            .values('reserva__recurso__id', 'reserva__recurso__nombre',
+                    'reserva__recurso__complejo__nombre')
             .annotate(total=Sum('monto'))
             .order_by('-total')
         )
     ]
 
     confirmado = (
-        Reserva.objects.filter(estado='confirmada').aggregate(t=Sum('monto'))['t'] or CERO
+        reservas_base.filter(estado='confirmada').aggregate(t=Sum('monto'))['t'] or CERO
     )
     cobrado = (
-        Pago.objects.filter(estado='aprobado', reserva__estado='confirmada')
-        .aggregate(t=Sum('monto'))['t'] or CERO
+        Pago.objects.filter(
+            estado='aprobado', reserva__estado='confirmada',
+            reserva__recurso__complejo__in=alcance,
+        ).aggregate(t=Sum('monto'))['t'] or CERO
     )
-    saldo_por_cobrar = max(confirmado - cobrado, CERO)
 
     return render(request, 'panel/dashboard.html', {
         'seccion': 'resumen',
         'hoy': hoy,
-        'kpis': totales(movimientos_del_mes(mes)),
+        'kpis': totales(movimientos_del_mes(mes, alcance)),
         'reservas_hoy': reservas_hoy,
-        'pendientes': Reserva.objects.filter(estado='pendiente').count(),
+        'pendientes': reservas_base.filter(estado='pendiente').count(),
         'grafico': grafico,
         'por_cancha': por_cancha,
-        'saldo_por_cobrar': saldo_por_cobrar,
+        'saldo_por_cobrar': max(confirmado - cobrado, CERO),
     })
 
 
@@ -182,7 +216,8 @@ def dashboard(request):
 def reservas(request):
     Reserva.objects.liberar_vencidas()
     qs = (
-        Reserva.objects.select_related('recurso', 'usuario')
+        Reserva.objects.filter(recurso__complejo__in=request.alcance)
+        .select_related('recurso__complejo', 'usuario')
         .prefetch_related('pagos')
         .annotate(cobrado=Coalesce(
             Sum('pagos__monto', filter=Q(pagos__estado='aprobado')),
@@ -218,7 +253,8 @@ def reservas(request):
         'seccion': 'reservas',
         'reservas': pagina,
         'query': qs_sin(request, 'pagina'),
-        'recursos': Recurso.objects.all(),
+        'recursos': (Recurso.objects.filter(complejo__in=request.alcance)
+                     .select_related('complejo').order_by('complejo__nombre', 'nombre')),
         'estados': ESTADOS_FILTRO,
         'metodos': Pago.Metodo.choices,
         'f_estado': estado, 'f_recurso': recurso, 'f_fecha': fecha,
@@ -228,7 +264,8 @@ def reservas(request):
 @staff_required
 @require_POST
 def cancelar(request, pk):
-    reserva = get_object_or_404(Reserva, pk=pk)
+    # El permiso se verifica contra TODOS los complejos del usuario, no solo el visible
+    reserva = get_object_or_404(Reserva, pk=pk, recurso__complejo__in=request.complejos)
     if reserva.finalizada:
         messages.error(
             request, 'Esa reserva ya finalizó: no se puede cancelar ni devolver.'
@@ -248,7 +285,7 @@ def cancelar(request, pk):
 @staff_required
 @require_POST
 def cobrar(request, pk):
-    reserva = get_object_or_404(Reserva, pk=pk)
+    reserva = get_object_or_404(Reserva, pk=pk, recurso__complejo__in=request.complejos)
     metodo = request.POST.get('metodo')
     if metodo not in Pago.Metodo.values:
         messages.error(request, 'Elegí un método de pago.')
@@ -267,7 +304,8 @@ def cobrar(request, pk):
 
 @staff_required
 def mostrador(request):
-    form = MostradorForm(request.POST or None)
+    recursos = Recurso.objects.filter(activo=True, complejo__in=request.alcance)
+    form = MostradorForm(request.POST or None, recursos=recursos)
     if request.method == 'POST' and form.is_valid():
         datos = form.cleaned_data
         Reserva.objects.liberar_vencidas()
@@ -314,16 +352,16 @@ def finanzas(request):
     mes = parsear_mes(request.GET.get('mes'))
 
     if request.method == 'POST':
-        form = MovimientoForm(request.POST)
+        form = MovimientoForm(request.POST, complejos=request.alcance)
         if form.is_valid():
             form.save()
             messages.success(request, 'Movimiento registrado.')
             fecha = form.cleaned_data['fecha']
             return redirect(f"{reverse('panel_finanzas')}?mes={fecha:%Y-%m}")
     else:
-        form = MovimientoForm()
+        form = MovimientoForm(complejos=request.alcance)
 
-    qs = movimientos_del_mes(mes).select_related('reserva')
+    qs = movimientos_del_mes(mes, request.alcance).select_related('reserva')
     tipo = request.GET.get('tipo', '')
     movimientos = qs.filter(tipo=tipo) if tipo in ('ingreso', 'gasto') else qs
 
@@ -358,18 +396,20 @@ def finanzas(request):
 @require_POST
 def eliminar_movimiento(request, pk):
     # Solo los movimientos cargados a mano; los de reservas son el registro contable
-    get_object_or_404(Movimiento, pk=pk, reserva__isnull=True).delete()
+    get_object_or_404(
+        Movimiento, pk=pk, reserva__isnull=True, complejo__in=request.complejos
+    ).delete()
     messages.info(request, 'Movimiento eliminado.')
     mes = parsear_mes(request.POST.get('mes'))
     return volver_a(request, f"{reverse('panel_finanzas')}?mes={mes:%Y-%m}")
 
 
-
 @staff_required
 def exportar_pdf(request):
     mes = parsear_mes(request.GET.get('mes'))
-    qs = movimientos_del_mes(mes)
+    qs = movimientos_del_mes(mes, request.alcance)
     kpis = totales(qs)
+    nombres_complejos = ', '.join(c.nombre for c in request.alcance) or 'Sin complejos'
 
     azul = colors.HexColor('#312e81')
     gris = colors.HexColor('#64748b')
@@ -389,6 +429,7 @@ def exportar_pdf(request):
     elementos = [
         Paragraph('Informe financiero', titulo),
         Paragraph(
+            f'{escape(nombres_complejos)} - '
             f'{MESES_LARGOS[mes.month - 1].capitalize()} {mes.year} - '
             f'Generado el {ahora:%d/%m/%Y %H:%M}', sub),
     ]
@@ -464,7 +505,7 @@ def exportar_pdf(request):
         canvas.saveState()
         canvas.setFont('Helvetica', 8)
         canvas.setFillColor(gris)
-        canvas.drawString(1.8 * cm, 1 * cm, 'Sistema de reservas')
+        canvas.drawString(1.8 * cm, 1 * cm, 'TurnosPro')
         canvas.drawRightString(A4[0] - 1.8 * cm, 1 * cm, f'Página {doc.page}')
         canvas.restoreState()
 

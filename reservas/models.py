@@ -10,8 +10,61 @@ from django.utils import timezone
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 
+from django.core.exceptions import ValidationError
+
+
+class Complejo(models.Model):
+    nombre = models.CharField(max_length=120)
+    slug = models.SlugField(
+        unique=True, help_text='Identificador en la URL, por ejemplo: los-aromos.'
+    )
+    descripcion = models.TextField(blank=True)
+    url_web = models.URLField('Sitio web', blank=True)
+    activo = models.BooleanField(default=True)
+    administradores = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name='complejos_administrados',
+        help_text='Usuarios que gestionan este complejo desde el panel '
+                  '(deben tener "Es staff" tildado).',
+    )
+
+    # Reglas propias de cada complejo
+    hora_apertura = models.PositiveSmallIntegerField(
+        default=8, validators=[MaxValueValidator(23)],
+        help_text='Hora de apertura (0 a 23).',
+    )
+    hora_cierre = models.PositiveSmallIntegerField(
+        default=24, validators=[MinValueValidator(1), MaxValueValidator(24)],
+        help_text='Hora de cierre (1 a 24). 24 es la medianoche.',
+    )
+    duracion_max_horas = models.PositiveSmallIntegerField(
+        default=3, validators=[MinValueValidator(1), MaxValueValidator(12)],
+        help_text='Duración máxima de una reserva, en horas.',
+    )
+    anticipacion_cancelacion_horas = models.PositiveSmallIntegerField(
+        default=24, validators=[MaxValueValidator(168)],
+        help_text='Horas de anticipación mínimas para poder cancelar.',
+    )
+    minutos_pago = models.PositiveSmallIntegerField(
+        default=15, validators=[MinValueValidator(5), MaxValueValidator(120)],
+        help_text='Minutos para pagar la seña antes de que el horario se libere.',
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+
+    def clean(self):
+        if self.hora_cierre <= self.hora_apertura:
+            raise ValidationError('El cierre tiene que ser posterior a la apertura.')
+
+    def __str__(self):
+        return self.nombre
+
 
 class Recurso(models.Model):
+    complejo = models.ForeignKey(
+        Complejo, on_delete=models.PROTECT, related_name='recursos', null=True
+    )
     nombre = models.CharField(max_length=100)
     descripcion = models.TextField(blank=True)
     precio_hora = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -84,9 +137,8 @@ class Reserva(models.Model):
         ]
 
     def puede_cancelarse(self):
-        limite = timezone.now() + timedelta(
-            hours=settings.RESERVA_CANCELAR_ANTICIPACION_HORAS
-        )
+        horas = self.recurso.complejo.anticipacion_cancelacion_horas
+        limite = timezone.now() + timedelta(hours=horas)
         return self.estado == self.Estado.CONFIRMADA and self.periodo.lower > limite
 
     @property
@@ -196,6 +248,10 @@ class Movimiento(models.Model):
     reserva = models.ForeignKey(
         Reserva, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='movimientos',
+    )
+
+    complejo = models.ForeignKey(
+        Complejo, on_delete=models.PROTECT, related_name='movimientos', null=True
     )
     creado_en = models.DateTimeField(auto_now_add=True)
 

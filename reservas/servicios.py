@@ -24,6 +24,7 @@ def registrar_pago(reserva, metodo):
     reserva.vence_en = None
     reserva.save(update_fields=['estado', 'vence_en'])
     Movimiento.objects.create(
+        complejo=reserva.recurso.complejo,
         tipo=Movimiento.Tipo.INGRESO,
         categoria=Movimiento.Categoria.SENA,
         concepto=f'Seña reserva #{reserva.pk} - {reserva.recurso}',
@@ -47,6 +48,7 @@ def cobrar_saldo(reserva, metodo):
         reserva=reserva, monto=saldo, metodo=metodo, concepto=Pago.Concepto.SALDO
     )
     Movimiento.objects.create(
+        complejo=reserva.recurso.complejo,
         tipo=Movimiento.Tipo.INGRESO,
         categoria=Movimiento.Categoria.SALDO,
         concepto=f'Saldo reserva #{reserva.pk} - {reserva.recurso}',
@@ -70,6 +72,7 @@ def cancelar_con_devolucion(reserva):
     )
     if pagado > 0:
         Movimiento.objects.create(
+            complejo=reserva.recurso.complejo,
             tipo=Movimiento.Tipo.GASTO,
             categoria=Movimiento.Categoria.DEVOLUCION,
             concepto=f'Devolución reserva #{reserva.pk}',

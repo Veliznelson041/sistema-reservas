@@ -13,12 +13,12 @@
     <label for="filtro" style="margin:0">Recurso</label>
     <select id="filtro">
       <option value="">Todos</option>
-      {% for r in recursos %}<option value="{{ r.id }}">{{ r.nombre }}</option>{% endfor %}
+      {% for r in recursos %}<option value="{{ r.id }}">{{ r.complejo.nombre }} · {{ r.nombre }}</option>{% endfor %}
     </select>
   </div>
   <div class="legend">
     {% if user.is_staff %}
-      <span><i style="background:#16a34a"></i>Confirmada y pagada</span>
+      <span><i style="background:#16a34a"></i>Confirmada (seña paga)</span>
       <span><i style="background:#facc15"></i>Sin pagar (15 min)</span>
       <span><i style="background:#dc2626"></i>Finalizada</span>
       <span><i style="background:#f97316"></i>Cancelada</span>

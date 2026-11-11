@@ -12,7 +12,8 @@ from django.conf import settings
 
 class ReservaForm(forms.Form):
     tolerancia_minutos = 0
-    recurso = forms.ModelChoiceField(queryset=Recurso.objects.filter(activo=True))
+
+    recurso = forms.ModelChoiceField(queryset=Recurso.objects.none())
     inicio = forms.DateTimeField(
         widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
         input_formats=['%Y-%m-%dT%H:%M'],
@@ -22,31 +23,46 @@ class ReservaForm(forms.Form):
         input_formats=['%Y-%m-%dT%H:%M'],
     )
 
+    def __init__(self, *args, recursos=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if recursos is None:
+            recursos = Recurso.objects.filter(activo=True, complejo__activo=True)
+        campo = self.fields['recurso']
+        campo.queryset = recursos.select_related('complejo')
+        campo.label_from_instance = lambda r: f'{r.complejo.nombre} · {r.nombre}'
+
     def clean(self):
         datos = super().clean()
-        inicio, fin = datos.get('inicio'), datos.get('fin')
-        if not (inicio and fin):
+        recurso, inicio, fin = datos.get('recurso'), datos.get('inicio'), datos.get('fin')
+        if not (recurso and inicio and fin):
             return datos
+        complejo = recurso.complejo
 
         if fin <= inicio:
             raise forms.ValidationError('El fin debe ser posterior al inicio.')
         if inicio < timezone.now() - timedelta(minutes=self.tolerancia_minutos):
             raise forms.ValidationError('No se puede reservar en el pasado.')
-
-        maxima = timedelta(hours=settings.RESERVA_DURACION_MAX_HORAS)
-        if fin - inicio > maxima:
+        if fin - inicio > timedelta(hours=complejo.duracion_max_horas):
             raise forms.ValidationError(
-                f'La reserva no puede durar más de '
-                f'{settings.RESERVA_DURACION_MAX_HORAS} horas.'
+                f'En {complejo.nombre} la reserva no puede durar más de '
+                f'{complejo.duracion_max_horas} horas.'
             )
 
-        inicio_local = timezone.localtime(inicio)
-        fin_local = timezone.localtime(fin)
-        if (inicio_local.hour < settings.RESERVA_HORA_APERTURA
-                or inicio_local.date() != fin_local.date()):
+        inicio_l, fin_l = timezone.localtime(inicio), timezone.localtime(fin)
+        medianoche = (inicio_l + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if fin_l.date() == inicio_l.date():
+            fin_horas = fin_l.hour + fin_l.minute / 60
+        elif fin_l == medianoche:
+            fin_horas = 24
+        else:
+            raise forms.ValidationError('La reserva debe terminar el mismo día.')
+        inicio_horas = inicio_l.hour + inicio_l.minute / 60
+        if inicio_horas < complejo.hora_apertura or fin_horas > complejo.hora_cierre:
             raise forms.ValidationError(
-                f'Las reservas son desde las {settings.RESERVA_HORA_APERTURA}:00 '
-                f'y deben terminar el mismo día.'
+                f'{complejo.nombre} atiende de {complejo.hora_apertura}:00 '
+                f'a {complejo.hora_cierre}:00.'
             )
         return datos
 
@@ -81,16 +97,22 @@ class MostradorForm(ReservaForm):
 class MovimientoForm(forms.ModelForm):
     class Meta:
         model = Movimiento
-        fields = ['tipo', 'categoria', 'concepto', 'monto', 'fecha']
+        fields = ['complejo', 'tipo', 'categoria', 'concepto', 'monto', 'fecha']
         labels = {
-            'tipo': 'Tipo', 'categoria': 'Categoría',
+            'complejo': 'Complejo', 'tipo': 'Tipo', 'categoria': 'Categoría',
             'concepto': 'Concepto', 'monto': 'Monto ($)', 'fecha': 'Fecha',
         }
         widgets = {'fecha': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d')}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, complejos, **kwargs):
         super().__init__(*args, **kwargs)
-        # Reservas y devoluciones se registran solas
+        campo = self.fields['complejo']
+        campo.queryset = complejos
+        campo.empty_label = None
+        if complejos.count() == 1:   # con un solo complejo no hace falta elegirlo
+            campo.initial = complejos.first().pk
+            campo.widget = forms.HiddenInput()
+        # Reservas, señas, saldos y devoluciones se registran solos
         self.fields['categoria'].choices = [
             c for c in Movimiento.Categoria.choices
             if c[0] not in ('reserva', 'devolucion', 'sena', 'saldo')

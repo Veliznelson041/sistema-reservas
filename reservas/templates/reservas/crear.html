@@ -13,7 +13,8 @@
       <span class="icon">⚠️</span>
       <div>
         <strong>Política de cancelación</strong>
-        No vas a poder cancelar esta reserva si faltan menos de {{ anticipacion }} horas para su inicio. Cancelando a tiempo se te devuelve la seña.
+        <span id="pol-generica">Cada complejo define su plazo de cancelación; lo ves al elegir la cancha.</span>
+        <span id="pol-detalle" hidden>No vas a poder cancelar si faltan menos de <b data-regla="anticipacion"></b> horas para el inicio. Cancelando a tiempo se te devuelve la seña.</span>
       </div>
     </div>
 
@@ -36,19 +37,21 @@
 
   <aside class="card">
     <h3 style="margin-top:0">Antes de reservar</h3>
-    <ul class="rules">
-      <li><span class="dot">💳</span><div><strong>Se confirma al pagar la seña</strong><small>Tenés {{ minutos_pago }} minutos para pagar; el horario queda reservado para vos.</small></div></li>
+    <p id="reglas-vacio" class="locked">Elegí una cancha para ver las reglas de su complejo.</p>
+    <ul class="rules" id="reglas" hidden>
+      <li><span class="dot">🏟️</span><div><strong id="rg-complejo"></strong><small>Estas reglas son propias de este complejo.</small></div></li>
+      <li><span class="dot">💳</span><div><strong>Se confirma al pagar la seña</strong><small>Tenés <b data-regla="minutos_pago"></b> minutos para pagar; el horario queda reservado para vos.</small></div></li>
       <li><span class="dot">🏪</span><div><strong>El resto, en el local</strong><small>Abonás el saldo al finalizar tu turno (efectivo, tarjeta o transferencia).</small></div></li>
-      <li><span class="dot">⏱️</span><div><strong>Máximo {{ duracion_max }} horas</strong><small>Duración por reserva.</small></div></li>
-      <li><span class="dot">🕗</span><div><strong>Desde las {{ apertura }}:00</strong><small>Y debe terminar el mismo día.</small></div></li>
-      <li><span class="dot">🔒</span><div><strong>Cancelación {{ anticipacion }} h antes</strong><small>Con devolución de la seña.</small></div></li>
+      <li><span class="dot">⏱️</span><div><strong>Máximo <b data-regla="duracion_max"></b> horas</strong><small>Duración por reserva.</small></div></li>
+      <li><span class="dot">🕗</span><div><strong>De <b data-regla="apertura"></b>:00 a <b data-regla="cierre"></b>:00</strong><small>Y debe terminar el mismo día.</small></div></li>
+      <li><span class="dot">🔒</span><div><strong>Cancelación hasta <b data-regla="anticipacion"></b> h antes</strong><small>Con devolución de la seña.</small></div></li>
     </ul>
   </aside>
 </div>
 
-{{ precios|json_script:"precios" }}
+{{ recursos_js|json_script:"recursos-js" }}
 <script>
-  const precios = JSON.parse(document.getElementById('precios').textContent);
+  const datos = JSON.parse(document.getElementById('recursos-js').textContent);
   const rec = document.getElementById('id_recurso');
   const ini = document.getElementById('id_inicio');
   const fin = document.getElementById('id_fin');
@@ -61,8 +64,22 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function reglas() {
+    const r = datos[rec.value];
+    document.getElementById('reglas').hidden = !r;
+    document.getElementById('reglas-vacio').hidden = !!r;
+    document.getElementById('pol-generica').hidden = !!r;
+    document.getElementById('pol-detalle').hidden = !r;
+    if (!r) return;
+    document.querySelectorAll('[data-regla]').forEach(el => {
+      el.textContent = r[el.dataset.regla];
+    });
+    poner('rg-complejo', r.complejo);
+  }
+
   function actualizar() {
-    const r = precios[rec.value];
+    reglas();
+    const r = datos[rec.value];
     const horas = (new Date(fin.value) - new Date(ini.value)) / 36e5;
     if (r === undefined || !ini.value || !fin.value || !(horas > 0)) {
       caja.hidden = true;

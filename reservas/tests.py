@@ -16,13 +16,37 @@ def rango(inicio, horas=1):
     return DateTimeTZRange(inicio, inicio + timedelta(hours=horas))
 
 
+from .models import Complejo
+
+
+def complejo_demo():
+    return Complejo.objects.get_or_create(
+        slug='demo', defaults={'nombre': 'Complejo Demo'}
+    )[0]
+
+
+def nuevo_recurso(**kwargs):
+    if 'complejo' not in kwargs:
+        kwargs['complejo'] = complejo_demo()
+    recurso = Recurso(**kwargs)
+    recurso.save()
+    return recurso
+
+
+def nuevo_admin(username, password='1234', complejo=None):
+    """Usuario staff asignado a un complejo (por defecto, el demo)."""
+    usuario = User.objects.create_user(username, password=password, is_staff=True)
+    (complejo or complejo_demo()).administradores.add(usuario)
+    return usuario
+
+
 class ReservaSolapamientoTests(TestCase):
     """Pruebas secuenciales de la restricción de exclusión."""
 
     def setUp(self):
         self.usuario = User.objects.create_user('nelson', password='1234')
-        self.cancha1 = Recurso.objects.create(nombre='Cancha 1')
-        self.cancha2 = Recurso.objects.create(nombre='Cancha 2')
+        self.cancha1 = nuevo_recurso(nombre='Cancha 1')
+        self.cancha2 = nuevo_recurso(nombre='Cancha 2')
         self.inicio = timezone.now() + timedelta(days=1)
 
     def crear(self, recurso, inicio, estado='confirmada'):
@@ -57,7 +81,7 @@ class ReservaConcurrenciaTests(TransactionTestCase):
 
     def test_solo_una_reserva_gana_con_hilos_simultaneos(self):
         usuario = User.objects.create_user('nelson', password='1234')
-        cancha = Recurso.objects.create(nombre='Cancha 1')
+        cancha = nuevo_recurso(nombre='Cancha 1')
         inicio = timezone.now() + timedelta(days=1)
 
         cantidad_hilos = 10
@@ -93,7 +117,7 @@ from .forms import ReservaForm
 
 class ReglasDeNegocioTests(TestCase):
     def setUp(self):
-        self.cancha = Recurso.objects.create(nombre='Cancha 1')
+        self.cancha = nuevo_recurso(nombre='Cancha 1')
         manana = timezone.localtime() + timedelta(days=2)
         self.inicio = manana.replace(hour=10, minute=0, second=0, microsecond=0)
 
@@ -132,7 +156,7 @@ from .servicios import cancelar_con_devolucion, registrar_pago
 class PagoTests(TestCase):
     def setUp(self):
         self.usuario = User.objects.create_user('ana', password='1234')
-        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         self.inicio = timezone.now() + timedelta(days=3)
 
     def pendiente(self, vence_en=None):
@@ -174,7 +198,7 @@ class PagoTests(TestCase):
 class PanelTests(TestCase):
     def setUp(self):
         self.cliente = User.objects.create_user('cli', password='1234')
-        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.admin = nuevo_admin('adm')
 
     def test_anonimo_va_al_login(self):
         self.assertEqual(self.client.get('/panel/').status_code, 302)
@@ -189,7 +213,7 @@ class PanelTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
 
     def test_mostrador_registra_reserva_y_cobro(self):
-        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         self.client.login(username='adm', password='1234')
         inicio = (timezone.localtime() + timedelta(days=1)).replace(
             hour=10, minute=0, second=0, microsecond=0
@@ -214,8 +238,8 @@ from .models import Pago
 
 class FinalizadasYPdfTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
-        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.admin = nuevo_admin('adm')
+        self.cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         self.pasada = Reserva.objects.create(
             usuario=self.admin, recurso=self.cancha, monto=1000, estado='confirmada',
             periodo=rango(timezone.now() - timedelta(days=2)),
@@ -253,10 +277,10 @@ class FinalizadasYPdfTests(TestCase):
 
 class CalendarioColoresTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.admin = nuevo_admin('adm')
         self.ana = User.objects.create_user('ana', password='1234')
         self.beto = User.objects.create_user('beto', password='1234')
-        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         ahora = timezone.now()
 
         def crear(usuario, dias, estado, vence=None):
@@ -297,7 +321,7 @@ class CalendarioColoresTests(TestCase):
 class CancelarFinalizadaTests(TestCase):
     def test_el_servicio_rechaza_una_reserva_finalizada(self):
         usuario = User.objects.create_user('ana', password='1234')
-        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         pasada = Reserva.objects.create(
             usuario=usuario, recurso=cancha, monto=1000, estado='confirmada',
             periodo=rango(timezone.now() - timedelta(days=2)),
@@ -309,10 +333,10 @@ class CancelarFinalizadaTests(TestCase):
 
 class DetalleCalendarioTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
+        self.admin = nuevo_admin('adm')
         self.ana = User.objects.create_user('ana', password='1234')
         self.beto = User.objects.create_user('beto', password='1234')
-        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         ahora = timezone.now()
         self.de_ana = Reserva.objects.create(
             usuario=self.ana, recurso=cancha, monto=1000, estado='confirmada',
@@ -357,7 +381,7 @@ from .servicios import cobrar_saldo
 class SenaTests(TestCase):
     def setUp(self):
         self.usuario = User.objects.create_user('ana', password='1234')
-        self.cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)  # seña 30 %
+        self.cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)  # seña 30 %
         self.inicio = timezone.now() + timedelta(days=3)
 
     def crear(self, estado='pendiente', inicio=None):
@@ -417,9 +441,9 @@ class SenaTests(TestCase):
 
 class CobroEnPanelTests(TestCase):
     def test_admin_cobra_el_saldo_y_el_cliente_no_puede(self):
-        User.objects.create_user('adm', password='1234', is_staff=True)
+        nuevo_admin('adm')
         cliente = User.objects.create_user('cli', password='1234')
-        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         reserva = Reserva.objects.create(
             usuario=cliente, recurso=cancha, monto=1000, sena=300, estado='confirmada',
             periodo=rango(timezone.now() - timedelta(hours=3)),
@@ -444,8 +468,8 @@ class CobroEnPanelTests(TestCase):
 
 class PaginacionTests(TestCase):
     def setUp(self):
-        self.admin = User.objects.create_user('adm', password='1234', is_staff=True)
-        cancha = Recurso.objects.create(nombre='Cancha 1', precio_hora=1000)
+        self.admin = nuevo_admin('adm')
+        cancha = nuevo_recurso(nombre='Cancha 1', precio_hora=1000)
         base = timezone.now() + timedelta(days=1)
         for i in range(7):
             Reserva.objects.create(
@@ -454,7 +478,7 @@ class PaginacionTests(TestCase):
             )
         hoy = timezone.localdate()
         for i in range(7):
-            Movimiento.objects.create(
+            Movimiento.objects.create(complejo=complejo_demo(), 
                 tipo='gasto', categoria='otros', concepto=f'Gasto {i}',
                 monto=10, fecha=hoy,
             )
@@ -484,7 +508,7 @@ class PaginacionTests(TestCase):
     def test_desglose_paginado(self):
         hoy = timezone.localdate()
         for cat in ['mantenimiento', 'servicios', 'sueldos', 'insumos', 'devolucion', 'reserva']:
-            Movimiento.objects.create(
+            Movimiento.objects.create(complejo=complejo_demo(), 
                 tipo='gasto', categoria=cat, concepto='x', monto=5, fecha=hoy
             )
         r = self.client.get('/panel/finanzas/')
@@ -504,4 +528,160 @@ class PaginacionTests(TestCase):
             'metodo': 'efectivo', 'next': 'https://sitio-externo.com/',
         })
         self.assertEqual(r['Location'], '/panel/reservas/')
+
+
+from .forms import ReservaForm
+
+
+class AislamientoEntreComplejosTests(TestCase):
+    def setUp(self):
+        self.a = Complejo.objects.create(nombre='Complejo A', slug='a')
+        self.b = Complejo.objects.create(
+            nombre='Complejo B', slug='b', duracion_max_horas=2,
+            hora_apertura=10, hora_cierre=22,
+        )
+        self.admin_a = nuevo_admin('admin_a', complejo=self.a)
+        self.admin_b = nuevo_admin('admin_b', complejo=self.b)
+        User.objects.create_superuser('root', password='1234')
+        User.objects.create_user('suelto', password='1234', is_staff=True)
+        self.cliente = User.objects.create_user('cli', password='1234')
+        self.cancha_a = nuevo_recurso(nombre='Cancha A', precio_hora=1000, complejo=self.a)
+        self.cancha_b = nuevo_recurso(nombre='Cancha B', precio_hora=1000, complejo=self.b)
+
+        ahora = timezone.now()
+
+        def reserva(cancha, dias, complejo, monto):
+            r = Reserva.objects.create(
+                usuario=self.cliente, recurso=cancha, monto=1000, sena=300,
+                estado='confirmada', periodo=rango(ahora + timedelta(days=dias)),
+            )
+            Pago.objects.create(reserva=r, monto=300, metodo='tarjeta')
+            Movimiento.objects.create(
+                complejo=complejo, tipo='ingreso', categoria='sena',
+                concepto='seña', monto=monto, reserva=r,
+            )
+            return r
+
+        self.res_a = reserva(self.cancha_a, 2, self.a, 300)
+        self.res_b = reserva(self.cancha_b, 3, self.b, 500)
+
+    def test_staff_sin_complejo_no_entra_al_panel(self):
+        self.client.login(username='suelto', password='1234')
+        self.assertEqual(self.client.get('/panel/').status_code, 403)
+
+    def test_admin_solo_ve_las_reservas_de_su_complejo(self):
+        self.client.login(username='admin_a', password='1234')
+        r = self.client.get('/panel/reservas/')
+        self.assertEqual([x.pk for x in r.context['reservas']], [self.res_a.pk])
+
+    def test_admin_no_puede_cancelar_ni_cobrar_en_otro_complejo(self):
+        self.client.login(username='admin_a', password='1234')
+        r = self.client.post(f'/panel/reservas/{self.res_b.pk}/cancelar/')
+        self.assertEqual(r.status_code, 404)
+        r = self.client.post(
+            f'/panel/reservas/{self.res_b.pk}/cobrar/', {'metodo': 'efectivo'}
+        )
+        self.assertEqual(r.status_code, 404)
+        self.res_b.refresh_from_db()
+        self.assertEqual(self.res_b.estado, 'confirmada')
+        self.assertEqual(Movimiento.objects.filter(categoria='saldo').count(), 0)
+
+    def test_admin_si_gestiona_su_propio_complejo(self):
+        self.client.login(username='admin_a', password='1234')
+        r = self.client.post(
+            f'/panel/reservas/{self.res_a.pk}/cobrar/', {'metodo': 'efectivo'}
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(Movimiento.objects.filter(categoria='saldo').count(), 1)
+
+    def test_finanzas_solo_del_complejo(self):
+        for usuario, esperado in [('admin_a', 300), ('admin_b', 500), ('root', 800)]:
+            self.client.login(username=usuario, password='1234')
+            r = self.client.get('/panel/finanzas/')
+            self.assertEqual(r.context['kpis']['ingresos'], esperado, usuario)
+
+    def test_no_se_elimina_un_movimiento_de_otro_complejo(self):
+        gasto = Movimiento.objects.create(
+            complejo=self.b, tipo='gasto', categoria='otros', concepto='luz', monto=10
+        )
+        self.client.login(username='admin_a', password='1234')
+        r = self.client.post(f'/panel/finanzas/{gasto.pk}/eliminar/')
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(Movimiento.objects.filter(pk=gasto.pk).exists())
+
+    def test_superusuario_filtra_con_el_selector(self):
+        self.client.login(username='root', password='1234')
+        r = self.client.get('/panel/reservas/')
+        self.assertEqual(len(r.context['reservas']), 2)
+        self.client.post('/panel/complejo/', {'complejo': self.a.pk})
+        r = self.client.get('/panel/reservas/')
+        self.assertEqual([x.pk for x in r.context['reservas']], [self.res_a.pk])
+
+    def test_un_admin_no_puede_elegir_un_complejo_ajeno(self):
+        self.client.login(username='admin_a', password='1234')
+        self.client.post('/panel/complejo/', {'complejo': self.b.pk})
+        r = self.client.get('/panel/reservas/')
+        self.assertEqual([x.pk for x in r.context['reservas']], [self.res_a.pk])
+
+    def test_calendario_no_filtra_datos_de_otros_complejos(self):
+        self.client.login(username='admin_a', password='1234')
+        eventos = {e['id']: e for e in self.client.get('/calendario/eventos/').json()}
+        propia = dict(eventos[self.res_a.pk]['extendedProps']['detalle'])
+        ajena = dict(eventos[self.res_b.pk]['extendedProps']['detalle'])
+        self.assertIn('Cliente', propia)
+        self.assertNotIn('Cliente', ajena)
+        self.assertNotIn('Método de pago', ajena)
+        self.assertEqual(eventos[self.res_b.pk]['color'], '#94a3b8')
+
+
+class ReglasPorComplejoTests(TestCase):
+    def setUp(self):
+        self.a = Complejo.objects.create(nombre='Complejo A', slug='a')   # 8-24 h, máx 3 h
+        self.b = Complejo.objects.create(
+            nombre='Complejo B', slug='b', duracion_max_horas=2,
+            hora_apertura=10, hora_cierre=22,
+        )
+        self.cancha_a = nuevo_recurso(nombre='Cancha A', precio_hora=1000, complejo=self.a)
+        self.cancha_b = nuevo_recurso(nombre='Cancha B', precio_hora=1000, complejo=self.b)
+
+    def datos(self, cancha, hora, horas, dias=2):
+        base = (timezone.localtime() + timedelta(days=dias)).replace(
+            hour=hora, minute=0, second=0, microsecond=0
+        )
+        fmt = '%Y-%m-%dT%H:%M'
+        return {
+            'recurso': cancha.pk,
+            'inicio': base.strftime(fmt),
+            'fin': (base + timedelta(hours=horas)).strftime(fmt),
+        }
+
+    def test_cada_complejo_aplica_su_duracion_maxima(self):
+        self.assertTrue(ReservaForm(self.datos(self.cancha_a, 10, 3)).is_valid())
+        self.assertFalse(ReservaForm(self.datos(self.cancha_b, 10, 3)).is_valid())
+        self.assertTrue(ReservaForm(self.datos(self.cancha_b, 10, 2)).is_valid())
+
+    def test_cada_complejo_aplica_su_horario(self):
+        self.assertTrue(ReservaForm(self.datos(self.cancha_a, 9, 1)).is_valid())
+        self.assertFalse(ReservaForm(self.datos(self.cancha_b, 9, 1)).is_valid())    # abre a las 10
+        self.assertTrue(ReservaForm(self.datos(self.cancha_b, 21, 1)).is_valid())    # termina 22:00
+        self.assertFalse(ReservaForm(self.datos(self.cancha_b, 21, 2)).is_valid())   # pasa del cierre
+
+    def test_se_puede_terminar_justo_a_medianoche_si_el_complejo_cierra_a_las_24(self):
+        self.assertTrue(ReservaForm(self.datos(self.cancha_a, 23, 1)).is_valid())
+
+    def test_la_cancelacion_usa_el_plazo_del_complejo(self):
+        self.b.anticipacion_cancelacion_horas = 72
+        self.b.save()
+        usuario = User.objects.create_user('ana', password='1234')
+        en_dos_dias = timezone.now() + timedelta(days=2)
+        en_a = Reserva.objects.create(
+            usuario=usuario, recurso=self.cancha_a, monto=1000, estado='confirmada',
+            periodo=rango(en_dos_dias),
+        )
+        en_b = Reserva.objects.create(
+            usuario=usuario, recurso=self.cancha_b, monto=1000, estado='confirmada',
+            periodo=rango(en_dos_dias),
+        )
+        self.assertTrue(en_a.puede_cancelarse())    # plazo 24 h
+        self.assertFalse(en_b.puede_cancelarse())   # plazo 72 h
 

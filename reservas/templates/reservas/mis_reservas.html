@@ -17,7 +17,7 @@
       </tr>
       {% for r in reservas %}
       <tr>
-        <td class="resource">{{ r.recurso }}</td>
+        <td class="resource">{{ r.recurso }}<br><small class="muted">{{ r.recurso.complejo }}</small></td>
         <td>{{ r.periodo.lower|date:"d/m/Y H:i" }}</td>
         <td>{{ r.periodo.upper|date:"d/m/Y H:i" }}</td>
         <td>${{ r.monto|floatformat:"2g" }}</td>
@@ -37,7 +37,7 @@
               {% csrf_token %}<button class="btn btn-danger">Cancelar</button>
             </form>
           {% elif r.estado_clave == 'confirmada' %}
-            <span class="locked">🔒 No cancelable (menos de 24 h)</span>
+            <span class="locked">🔒 No cancelable (menos de {{ r.recurso.complejo.anticipacion_cancelacion_horas }} h)</span>
           {% endif %}
         </td>
       </tr>

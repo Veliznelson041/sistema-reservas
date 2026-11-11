@@ -5,7 +5,23 @@
   <a href="{% url 'panel_reservas' %}" class="{% if seccion == 'reservas' %}active{% endif %}">🗓️ Reservas</a>
   <a href="{% url 'panel_mostrador' %}" class="{% if seccion == 'mostrador' %}active{% endif %}">🏪 Reserva en mostrador</a>
   <a href="{% url 'panel_finanzas' %}" class="{% if seccion == 'finanzas' %}active{% endif %}">💰 Finanzas</a>
-  <a href="{% url 'admin:index' %}">🛠️ Admin Django</a>
+  {% if user.is_superuser %}<a href="{% url 'admin:index' %}">🛠️ Admin Django</a>{% endif %}
+
+  {% if request.complejos.count > 1 %}
+  <form method="post" action="{% url 'panel_complejo' %}" class="scope">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <label for="sel-complejo">Complejo</label>
+    <select id="sel-complejo" name="complejo" onchange="this.form.submit()">
+      <option value="">Todos</option>
+      {% for c in request.complejos %}
+      <option value="{{ c.pk }}" {% if request.complejo_activo.pk == c.pk %}selected{% endif %}>{{ c.nombre }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% elif request.complejos.count == 1 %}
+  <span class="scope-badge">🏟️ {{ request.complejos.first.nombre }}</span>
+  {% endif %}
 </nav>
 {% block panel %}{% endblock %}
 {% endblock %}

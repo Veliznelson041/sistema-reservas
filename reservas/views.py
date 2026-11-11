@@ -1,10 +1,10 @@
 from datetime import timedelta
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -14,23 +14,23 @@ from psycopg2.extras import DateTimeTZRange
 from .emails import enviar_cancelacion, enviar_confirmacion
 from .forms import RegistroForm, ReservaForm
 from .models import Pago, Recurso, Reserva
+from .permisos import complejos_del_usuario
 from .servicios import cancelar_con_devolucion, registrar_pago
-
 from .utils import pesos
-
-COLORES_ADMIN = {
-    'finalizada': ('#dc2626', '#ffffff'),   # rojo
-    'confirmada': ('#16a34a', '#ffffff'),   # verde: confirmada y pagada
-    'pendiente': ('#facc15', '#713f12'),    # amarillo: sin pagar
-    'cancelada': ('#f97316', '#ffffff'),    # naranja
-}
-COLOR_PROPIA = '#4f46e5'    # violeta
-COLOR_AJENA = '#94a3b8'     # gris
 
 METODOS_ONLINE = [
     (valor, nombre) for valor, nombre in Pago.Metodo.choices
     if valor != Pago.Metodo.EFECTIVO
 ]
+
+COLORES_ADMIN = {
+    'finalizada': ('#dc2626', '#ffffff'),   # rojo
+    'confirmada': ('#16a34a', '#ffffff'),   # verde: confirmada y con seña paga
+    'pendiente': ('#facc15', '#713f12'),    # amarillo: sin pagar
+    'cancelada': ('#f97316', '#ffffff'),    # naranja
+}
+COLOR_PROPIA = '#4f46e5'    # violeta
+COLOR_AJENA = '#94a3b8'     # gris
 
 
 def registro(request):
@@ -42,15 +42,24 @@ def registro(request):
     return render(request, 'registration/registro.html', {'form': form})
 
 
+def _recursos_reservables():
+    return (
+        Recurso.objects.filter(activo=True, complejo__activo=True)
+        .select_related('complejo')
+        .order_by('complejo__nombre', 'nombre')
+    )
+
+
 @login_required
 def crear_reserva(request):
+    recursos = _recursos_reservables()
     if request.method == 'POST':
-        form = ReservaForm(request.POST)
+        form = ReservaForm(request.POST, recursos=recursos)
     else:
         form = ReservaForm(initial={
             'inicio': request.GET.get('inicio'),
             'recurso': request.GET.get('recurso') or None,
-        })
+        }, recursos=recursos)
 
     if request.method == 'POST' and form.is_valid():
         datos = form.cleaned_data
@@ -71,7 +80,7 @@ def crear_reserva(request):
                     estado=(Reserva.Estado.CONFIRMADA if gratis
                             else Reserva.Estado.PENDIENTE),
                     vence_en=(None if gratis else timezone.now() + timedelta(
-                        minutes=settings.RESERVA_PAGO_MINUTOS)),
+                        minutes=recurso.complejo.minutos_pago)),
                 )
         except IntegrityError:
             form.add_error(None, 'Ese horario ya fue reservado. Elegí otro.')
@@ -82,17 +91,21 @@ def crear_reserva(request):
                 return redirect('mis_reservas')
             return redirect('pagar_reserva', pk=reserva.pk)
 
-    recursos = Recurso.objects.filter(activo=True)
     return render(request, 'reservas/crear.html', {
         'form': form,
-        'precios': {
-            str(r.pk): {'precio': float(r.precio_hora), 'sena': r.sena_porcentaje}
+        'recursos_js': {
+            str(r.pk): {
+                'precio': float(r.precio_hora),
+                'sena': r.sena_porcentaje,
+                'complejo': r.complejo.nombre,
+                'apertura': r.complejo.hora_apertura,
+                'cierre': r.complejo.hora_cierre,
+                'duracion_max': r.complejo.duracion_max_horas,
+                'anticipacion': r.complejo.anticipacion_cancelacion_horas,
+                'minutos_pago': r.complejo.minutos_pago,
+            }
             for r in recursos
         },
-        'anticipacion': settings.RESERVA_CANCELAR_ANTICIPACION_HORAS,
-        'duracion_max': settings.RESERVA_DURACION_MAX_HORAS,
-        'apertura': settings.RESERVA_HORA_APERTURA,
-        'minutos_pago': settings.RESERVA_PAGO_MINUTOS,
     })
 
 
@@ -104,7 +117,10 @@ def pagar_reserva(request, pk):
     if reserva.estado == Reserva.Estado.CONFIRMADA:
         return redirect('mis_reservas')
     if reserva.estado != Reserva.Estado.PENDIENTE:
-        messages.error(request, 'Se agotó el tiempo para pagar y el horario fue liberado. Volvé a reservar.')
+        messages.error(
+            request,
+            'Se agotó el tiempo para pagar y el horario fue liberado. Volvé a reservar.',
+        )
         return redirect('crear_reserva')
 
     if request.method == 'POST':
@@ -129,41 +145,33 @@ def pagar_reserva(request, pk):
 
 
 @login_required
-@require_POST
-def cancelar_reserva(request, pk):
-    reserva = get_object_or_404(Reserva, pk=pk, usuario=request.user)
-    if not reserva.puede_cancelarse():
-        messages.error(request, 'Solo se puede cancelar con 24 horas de anticipación.')
-        return redirect('mis_reservas')
-    devuelto = cancelar_con_devolucion(reserva)
-    enviar_cancelacion(reserva)
-    texto = 'Reserva cancelada.'
-    if devuelto:
-        texto += f' Se registró la devolución de ${devuelto}.'
-    messages.info(request, texto)
-    return redirect('mis_reservas')
-
-
-@login_required
 def mis_reservas(request):
     reservas = (
         Reserva.objects.filter(usuario=request.user, cliente_nombre='')
-        .select_related('recurso')
+        .select_related('recurso__complejo')
         .prefetch_related('pagos')
         .order_by('-creada_en')
     )
     return render(request, 'reservas/mis_reservas.html', {'reservas': reservas})
 
 
-def _metodo_de_pago(reserva):
-    """Método del pago aprobado. Usa los pagos ya cargados con prefetch_related."""
-    pago = next(
-        (p for p in reserva.pagos.all() if p.estado == Pago.Estado.APROBADO), None
-    )
-    if pago is None:
-        return 'Sin pagar' if reserva.estado == 'pendiente' else 'Sin pago registrado'
-    texto = pago.get_metodo_display()
-    return f'{texto} (devuelto)' if reserva.estado == 'cancelada' else texto
+@login_required
+@require_POST
+def cancelar_reserva(request, pk):
+    reserva = get_object_or_404(Reserva, pk=pk, usuario=request.user)
+    if not reserva.puede_cancelarse():
+        horas = reserva.recurso.complejo.anticipacion_cancelacion_horas
+        messages.error(
+            request, f'Solo se puede cancelar con {horas} horas de anticipación.'
+        )
+        return redirect('mis_reservas')
+    devuelto = cancelar_con_devolucion(reserva)
+    enviar_cancelacion(reserva)
+    texto = 'Reserva cancelada.'
+    if devuelto:
+        texto += f' Se registró la devolución de {pesos(devuelto)}.'
+    messages.info(request, texto)
+    return redirect('mis_reservas')
 
 
 def _metodo_de_pago(reserva):
@@ -191,15 +199,16 @@ def _filas_de_pago(r):
 def eventos_calendario(request):
     # Las pendientes vencidas se liberan: dejan de ocupar el horario
     Reserva.objects.liberar_vencidas()
-    es_admin = request.user.is_staff
+    # Complejos que este usuario administra (vacío si es un cliente común)
+    ids_admin = set(complejos_del_usuario(request.user).values_list('pk', flat=True))
 
-    estados = ['pendiente', 'confirmada']
-    if es_admin:
-        estados.append('cancelada')   # solo el admin ve las canceladas
+    visibles = Q(estado__in=['pendiente', 'confirmada'])
+    if ids_admin:   # las canceladas las ve solo quien administra ese complejo
+        visibles |= Q(estado='cancelada', recurso__complejo_id__in=ids_admin)
 
     reservas = (
-        Reserva.objects.filter(estado__in=estados)
-        .select_related('recurso', 'usuario')
+        Reserva.objects.filter(visibles)
+        .select_related('recurso__complejo', 'usuario')
         .prefetch_related('pagos')
     )
     recurso_id = request.GET.get('recurso')
@@ -211,26 +220,31 @@ def eventos_calendario(request):
 
     eventos = []
     for r in reservas:
+        complejo = r.recurso.complejo
+        # El rol se decide POR COMPLEJO: ser admin de uno no da acceso a los demás
+        es_admin = complejo.pk in ids_admin
         mia = r.usuario_id == request.user.id and not r.cliente_nombre
+        etiqueta = f'{complejo.nombre} · {r.recurso.nombre}'
         detalle = [
+            ['Complejo', complejo.nombre],
             ['Cancha', r.recurso.nombre],
             ['Desde', fecha(r.periodo.lower)],
             ['Hasta', fecha(r.periodo.upper)],
         ]
         if es_admin:
             color, texto = COLORES_ADMIN[r.estado_clave]
-            titulo = f'{r.recurso.nombre} · {r.cliente} ({r.estado_texto})'
+            titulo = f'{etiqueta} · {r.cliente} ({r.estado_texto})'
             cliente = r.cliente + (' (mostrador)' if r.cliente_nombre else '')
             detalle = [['Cliente', cliente]] + detalle + [
                 ['Estado', r.estado_texto]
             ] + _filas_de_pago(r)
         elif mia:
             color, texto = COLOR_PROPIA, '#ffffff'
-            titulo = f'{r.recurso.nombre} (mía)'
+            titulo = f'{etiqueta} (mía)'
             detalle += [['Estado', r.estado_texto]] + _filas_de_pago(r)
         else:
             color, texto = COLOR_AJENA, '#ffffff'
-            titulo = f'{r.recurso.nombre} · ocupada'
+            titulo = f'{etiqueta} · ocupada'
             detalle += [['Estado', 'Ocupada']]
 
         eventos.append({
@@ -240,12 +254,13 @@ def eventos_calendario(request):
             'end': r.periodo.upper.isoformat(),
             'color': color,
             'textColor': texto,
-            'extendedProps': {'detalle': detalle, 'titulo': r.recurso.nombre},
+            'extendedProps': {'detalle': detalle, 'titulo': etiqueta},
         })
     return JsonResponse(eventos, safe=False)
 
 
 @login_required
 def calendario(request):
-    recursos = Recurso.objects.filter(activo=True)
-    return render(request, 'reservas/calendario.html', {'recursos': recursos})
+    return render(request, 'reservas/calendario.html', {
+        'recursos': _recursos_reservables(),
+    })
